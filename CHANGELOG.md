@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Common Crawl graph lookups report incomplete downloads as errors instead of
+  caching a false "domain not found" result for 90 days. Exact matching stops
+  at the domain's record, accepts zero PageRank, and handles complete gzip
+  streams and concatenated members without losing the final line.
+
 ## [2.6.0] - 2026-11-10
 
 Deterministic checks ported from web-obs, the sister crawler project. Work

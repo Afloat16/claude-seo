@@ -66,6 +66,7 @@ KNOWN_RELEASES = [
 VERTICES_SUFFIX = "-domain-vertices.txt.gz"
 EDGES_SUFFIX = "-domain-edges.txt.gz"
 RANKINGS_SUFFIX = "-domain-ranks.txt.gz"
+MAX_GRAPH_COMPRESSED_BYTES = 500 * 1024 * 1024
 
 
 def _graph_file_url(release: str, suffix: str) -> str:
@@ -199,7 +200,7 @@ def _save_cache(domain: str, release: str, data: dict) -> None:
 def _stream_gz_chunked(url: str, target_domain: str, timeout: int = 120,
                         max_lines: int = 0) -> list:
     """
-    Stream a gzipped file and filter for lines matching the target domain.
+    Stream a gzipped file and filter for exact target-domain fields.
 
     Uses incremental zlib decompression to process large gzipped files
     without loading everything into memory. Stops early when enough matches
@@ -213,12 +214,24 @@ def _stream_gz_chunked(url: str, target_domain: str, timeout: int = 120,
 
     Returns:
         List of matching lines (tab-separated field lists).
+
+    Raises:
+        RuntimeError: The scan could not finish. An interrupted scan cannot
+            establish that a domain is absent from the graph.
     """
     import zlib
 
     matches = []
-    max_compressed_bytes = 500 * 1024 * 1024  # 500 MiB safety cap
     total_downloaded = 0
+    resp = None
+
+    def record(raw_line):
+        line = raw_line.decode("utf-8", errors="replace").strip()
+        if line and not line.startswith("#"):
+            fields = line.split("\t")
+            if target_domain in fields:
+                matches.append(fields)
+        return max_lines and len(matches) >= max_lines
 
     try:
         resp = requests.get(url, stream=True, timeout=timeout)
@@ -226,39 +239,39 @@ def _stream_gz_chunked(url: str, target_domain: str, timeout: int = 120,
 
         # Incremental gzip decompression (wbits=16+MAX for gzip format)
         decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
-        leftover = ""
+        leftover = b""
 
         for chunk in resp.iter_content(chunk_size=256 * 1024):  # 256 KiB chunks
             total_downloaded += len(chunk)
-            if total_downloaded > max_compressed_bytes:
-                break
+            if total_downloaded > MAX_GRAPH_COMPRESSED_BYTES:
+                raise RuntimeError("Common Crawl graph exceeded the compressed download limit")
 
-            try:
-                text = decompressor.decompress(chunk).decode("utf-8", errors="replace")
-            except zlib.error:
-                break
-
-            text = leftover + text
-            lines = text.split("\n")
-            leftover = lines[-1]  # Incomplete last line carries over
-
-            for line in lines[:-1]:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                fields = line.split("\t")
-                for field in fields:
-                    if field == target_domain or field.endswith(f".{target_domain}"):
-                        matches.append(fields)
+            pending = chunk
+            while pending:
+                if decompressor.eof:
+                    # A gzip file may contain concatenated members. The next
+                    # member can start in this chunk or a later one.
+                    pending = pending.lstrip(b"\x00")
+                    if not pending:
                         break
-                if max_lines and len(matches) >= max_lines:
-                    resp.close()
-                    return matches
+                    decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
+                decoded = decompressor.decompress(pending)
+                pending = decompressor.unused_data
+                lines = (leftover + decoded).split(b"\n")
+                leftover = lines[-1]
+                for line in lines[:-1]:
+                    if record(line):
+                        return matches
 
-    except requests.exceptions.Timeout:
-        pass  # Return whatever we found so far
-    except MemoryError:
-        pass
+        if not decompressor.eof:
+            raise RuntimeError("Common Crawl graph ended before its gzip stream was complete")
+        if leftover:
+            record(leftover)
+    except (requests.exceptions.RequestException, zlib.error) as exc:
+        raise RuntimeError(f"Common Crawl graph download failed: {exc}") from exc
+    finally:
+        if resp is not None:
+            resp.close()
 
     return matches
 
@@ -326,7 +339,7 @@ def get_domain_metrics(domain: str, release: Optional[str] = None,
 
     try:
         ranking_matches = _stream_gz_chunked(rankings_url, reversed_domain,
-                                              timeout=timeout, max_lines=5)
+                                              timeout=timeout, max_lines=1)
         for fields in ranking_matches:
             if len(fields) >= 6:
                 # fields[4] is the reversed hostname (e.g., com.google)
@@ -339,21 +352,21 @@ def get_domain_metrics(domain: str, release: Optional[str] = None,
                         "n_hosts": int(fields[5]) if fields[5].isdigit() else None,
                     }
                     break
-    except Exception as e:
-        rankings_data = {"error": str(e)}
-
-    # If not found in rankings, check vertices file to confirm domain was crawled at all
-    in_rankings = bool(rankings_data.get("pagerank"))
-    in_crawl = in_rankings  # If in rankings, definitely in crawl
-
-    if not in_rankings:
-        vertices_url = _graph_file_url(release, VERTICES_SUFFIX)
-        try:
+        # Presence is determined by a record, not by whether its PageRank is nonzero.
+        in_rankings = bool(rankings_data)
+        in_crawl = in_rankings
+        if not in_rankings:
+            vertices_url = _graph_file_url(release, VERTICES_SUFFIX)
             vertex_matches = _stream_gz_chunked(vertices_url, reversed_domain,
                                                  timeout=min(timeout, 60), max_lines=1)
             in_crawl = len(vertex_matches) > 0
-        except Exception:
-            pass  # Vertices file may be very large; timeout is acceptable
+    except Exception as e:
+        return {
+            "status": "error",
+            "data": None,
+            "error": f"Could not complete Common Crawl graph lookup: {e}",
+            "metadata": {"source": "commoncrawl", "release": release, "from_cache": False},
+        }
 
     # Build appropriate note based on what we found
     if in_rankings:
