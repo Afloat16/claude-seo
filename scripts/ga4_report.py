@@ -108,6 +108,7 @@ def organic_traffic_report(
         "report": "organic_traffic",
         "date_range": None,
         "totals": {},
+        "totals_error": None,
         "daily_data": [],
         "top_pages": [],
         "quota_tokens_used": None,
@@ -196,6 +197,24 @@ def organic_traffic_report(
             result["error"] = f"GA4 API error: {e}"
         return result
 
+    # Users are distinct over the full period and cannot be summed across dates.
+    total_users = None
+    if result["daily_data"]:
+        try:
+            users_response = client.run_report(RunReportRequest(
+                property=prop,
+                metrics=[Metric(name="totalUsers")],
+                date_ranges=daily_request.date_ranges,
+                dimension_filter=daily_request.dimension_filter,
+                limit=1,
+            ))
+            total_users = (
+                int(users_response.rows[0].metric_values[0].value)
+                if users_response.rows else 0
+            )
+        except Exception as e:
+            result["totals_error"] = f"Error fetching total organic users: {e}"
+
     # Top landing pages by organic sessions
     try:
         pages_request = RunReportRequest(
@@ -246,7 +265,6 @@ def organic_traffic_report(
     # Calculate totals
     if result["daily_data"]:
         total_sessions = sum(d["sessions"] for d in result["daily_data"])
-        total_users = sum(d["users"] for d in result["daily_data"])
         total_pageviews = sum(d["pageviews"] for d in result["daily_data"])
         result["totals"] = {
             "sessions": total_sessions,
@@ -509,7 +527,11 @@ def main():
             print(f"Property: {prop}")
             dr = result.get("date_range", {})
             print(f"Period: {dr.get('start')} to {dr.get('end')}")
-            print(f"\nSessions: {totals.get('sessions', 0):,} | Users: {totals.get('users', 0):,} | Pageviews: {totals.get('pageviews', 0):,}")
+            users = totals.get("users", 0)
+            users_text = f"{users:,}" if users is not None else "unavailable"
+            print(f"\nSessions: {totals.get('sessions', 0):,} | Users: {users_text} | Pageviews: {totals.get('pageviews', 0):,}")
+            if result.get("totals_error"):
+                print(f"Warning: {result['totals_error']}", file=sys.stderr)
             print(f"Avg Daily Sessions: {totals.get('avg_daily_sessions', 0):,.0f}")
 
             quota = result.get("quota_tokens_used")

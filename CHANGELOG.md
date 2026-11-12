@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- GA4 organic reports request distinct users over the whole reporting period instead of adding daily users. If that aggregate request fails, users remain unavailable and the report preserves the useful daily and landing-page data.
+
 ## [2.6.0] - 2026-11-10
 
 Deterministic checks ported from web-obs, the sister crawler project. Work
