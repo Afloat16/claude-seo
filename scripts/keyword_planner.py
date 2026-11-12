@@ -153,10 +153,12 @@ def generate_keyword_ideas(
             metrics = idea.keyword_idea_metrics
             monthly_volumes = []
             for mv in metrics.monthly_search_volumes:
+                # MonthOfYear reserves 0 and 1; JANUARY is 2, DECEMBER is 13.
+                month = int(mv.month) - 1
                 monthly_volumes.append({
                     "year": mv.year,
-                    "month": mv.month,
-                    "volume": mv.monthly_searches,
+                    "month": month if 1 <= month <= 12 else None,
+                    "volume": mv.monthly_searches if "monthly_searches" in mv else None,
                 })
 
             result["ideas"].append({
