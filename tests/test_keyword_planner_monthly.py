@@ -22,20 +22,22 @@ def ads(monkeypatch):
     client = GoogleAdsClient(
         credentials=AnonymousCredentials(), developer_token="fixture", use_proto_plus=True,
     )
-    service = Mock()
+    service = client.get_service("KeywordPlanIdeaService")
+    rpc = Mock()
+    monkeypatch.setitem(service.transport._wrapped_methods, service.transport.generate_keyword_ideas, rpc)
     monkeypatch.setattr(client, "get_service", lambda name: service)
     monkeypatch.setattr(keyword_planner, "_build_ads_client", lambda: (client, "1234567890"))
-    return client, service
+    return client, rpc
 
 
 def monthly_result(ads, records):
-    client, service = ads
+    client, rpc = ads
     response = client.get_type("GenerateKeywordIdeaResponse")
     response.results.append({
         "text": "seo tools",
         "keyword_idea_metrics": {"monthly_search_volumes": records},
     })
-    service.generate_keyword_ideas.return_value = response
+    rpc.return_value = response
     result = keyword_planner.generate_keyword_ideas(["seo tools"])
     assert result["error"] is None
     return result["ideas"][0]["monthly_volumes"]
