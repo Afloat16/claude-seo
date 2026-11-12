@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- YouTube searches keep successful snippets when the statistics request fails.
+  The result reports `statistics_error`, missing counts stay null, and text
+  output shows the partial results with a warning instead of dropping them.
+
 ## [2.6.0] - 2026-11-10
 
 Deterministic checks ported from web-obs, the sister crawler project. Work

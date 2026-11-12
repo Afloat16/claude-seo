@@ -27,11 +27,11 @@ except ImportError:
     sys.exit(1)
 
 try:
-    from google_auth import get_api_key
+    from google_auth import get_api_key, redact_google_api_key
 except ImportError:
     import os
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from google_auth import get_api_key
+    from google_auth import get_api_key, redact_google_api_key
 
 # YouTube Data API v3 quota costs:
 # search.list = 100 units, videos.list = 1 unit, channels.list = 1 unit
@@ -70,7 +70,10 @@ def search_videos(
     Returns:
         Dictionary with videos list and metadata.
     """
-    result = {"query": query, "videos": [], "total_results": 0, "error": None}
+    result = {
+        "query": query, "videos": [], "total_results": 0,
+        "error": None, "statistics_error": None,
+    }
 
     service = _build_youtube_service(api_key)
     if not service:
@@ -99,17 +102,24 @@ def search_videos(
 
         # Fetch statistics for all videos in one call (1 unit)
         if video_ids:
-            stats_response = service.videos().list(
-                id=",".join(video_ids),
-                part="statistics,contentDetails",
-            ).execute()
+            try:
+                stats_response = service.videos().list(
+                    id=",".join(video_ids),
+                    part="statistics,contentDetails",
+                ).execute()
+            except Exception as e:
+                # The search has already succeeded. Keep its snippets even if
+                # the optional statistics request fails, and report the gap.
+                result["statistics_error"] = redact_google_api_key(str(e))
+                stats_response = {"items": []}
 
             stats_map = {}
             for item in stats_response.get("items", []):
+                statistics = item.get("statistics", {})
                 stats_map[item["id"]] = {
-                    "views": int(item.get("statistics", {}).get("viewCount", 0)),
-                    "likes": int(item.get("statistics", {}).get("likeCount", 0)),
-                    "comments": int(item.get("statistics", {}).get("commentCount", 0)),
+                    "views": _optional_count(statistics, "viewCount"),
+                    "likes": _optional_count(statistics, "likeCount"),
+                    "comments": _optional_count(statistics, "commentCount"),
                     "duration": item.get("contentDetails", {}).get("duration", ""),
                 }
 
@@ -124,9 +134,9 @@ def search_videos(
                     "published": snip.get("publishedAt", ""),
                     "description": snip.get("description", "")[:300],
                     "thumbnail": snip.get("thumbnails", {}).get("high", {}).get("url", ""),
-                    "views": stats.get("views", 0),
-                    "likes": stats.get("likes", 0),
-                    "comments": stats.get("comments", 0),
+                    "views": stats.get("views"),
+                    "likes": stats.get("likes"),
+                    "comments": stats.get("comments"),
                     "duration": stats.get("duration", ""),
                     "url": f"https://www.youtube.com/watch?v={vid}",
                 })
@@ -144,6 +154,16 @@ def search_videos(
             result["error"] = f"YouTube API error: {e}"
 
     return result
+
+
+def _optional_count(statistics: dict, key: str) -> Optional[int]:
+    """Keep an unavailable statistic distinct from an explicitly reported zero."""
+    value = statistics.get(key)
+    return int(value) if value is not None else None
+
+
+def _format_count(value: Optional[int]) -> str:
+    return f"{value:,}" if value is not None else "unavailable"
 
 
 def get_video_details(
@@ -319,6 +339,9 @@ def main():
         if not args.json:
             sys.exit(1)
 
+    if result.get("statistics_error"):
+        print(f"Warning: YouTube video statistics unavailable: {result['statistics_error']}", file=sys.stderr)
+
     if args.json:
         print(json.dumps(result, indent=2))
     else:
@@ -327,7 +350,7 @@ def main():
             print(f"Results: {result.get('total_results', 0):,}")
             for i, v in enumerate(result.get("videos", []), 1):
                 print(f"\n  {i}. {v['title']}")
-                print(f"     {v['channel']} | {v['views']:,} views | {v['likes']:,} likes | {v['duration']}")
+                print(f"     {v['channel']} | {_format_count(v['views'])} views | {_format_count(v['likes'])} likes | {v['duration']}")
                 print(f"     {v['url']}")
         elif args.command == "video":
             d = result.get("details", {})
