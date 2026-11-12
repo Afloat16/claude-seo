@@ -646,6 +646,11 @@ def run_checks(html: str, page_url: str, headers: Optional[dict] = None,
     hdrs = {str(k).lower(): ", ".join(map(str, v)) if isinstance(v, (list, tuple)) else str(v)
             for k, v in (headers or {}).items()}
     soup = BeautifulSoup(html, _HTML_PARSER)
+    # Ordinary template contents live in an inert document fragment, not the
+    # page DOM. Keep declarative shadow roots, whose resources can be rendered.
+    for template in soup.find_all("template"):
+        if template.get("shadowrootmode", "").lower() not in {"open", "closed"}:
+            template.clear()
     base_url = _document_base(soup, page_url)
     is_https = page_url.lower().startswith("https://")
     if html_bytes is None:

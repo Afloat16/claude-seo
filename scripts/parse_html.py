@@ -646,6 +646,12 @@ def parse_html(html: str, base_url: Optional[str] = None) -> dict:
         Dictionary with extracted SEO data
     """
     soup = BeautifulSoup(html, _HTML_PARSER)
+    # Keep the hidden-text signal before removing inert template contents from
+    # document queries. Declarative shadow roots can contain rendered content.
+    hidden_text = _scan_hidden_text(soup)
+    for template in soup.find_all("template"):
+        if template.get("shadowrootmode", "").lower() not in {"open", "closed"}:
+            template.clear()
     resource_base_url = base_url
     base = soup.find("base", href=True)
     if base:
@@ -679,7 +685,7 @@ def parse_html(html: str, base_url: Optional[str] = None) -> dict:
         "twitter_card": {},
         "word_count": 0,
         "hreflang": [],
-        "hidden_text": {},
+        "hidden_text": hidden_text,
     }
 
     # Title
@@ -851,10 +857,6 @@ def parse_html(html: str, base_url: Optional[str] = None) -> dict:
             if len(invalid["samples"]) < _MAX_INVALID_SCHEMA_SAMPLES:
                 raw = str(script.string or "")[: _INVALID_SCHEMA_SAMPLE_CHARS * 5]
                 invalid["samples"].append(" ".join(raw.split())[:_INVALID_SCHEMA_SAMPLE_CHARS])
-
-    # Hidden text. Measured before the word count below removes elements, and
-    # read-only, so the word count is unchanged.
-    result["hidden_text"] = _scan_hidden_text(soup)
 
     # Word count (visible text only)
     for element in soup(["script", "style", "nav", "footer", "header"]):

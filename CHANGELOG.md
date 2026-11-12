@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Ordinary `<template>` contents no longer override page metadata or produce
+  resource findings in `parse_html.py` and `page_checks.py`. Template text is
+  still included in the hidden-text signal, and declarative shadow-root
+  resources retain their existing checks.
+
 ## [2.6.0] - 2026-11-10
 
 Deterministic checks ported from web-obs, the sister crawler project. Work
