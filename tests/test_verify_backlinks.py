@@ -75,6 +75,47 @@ def test_exact_link_wins_over_earlier_same_domain_link(fake_network):
     assert result["rel_attributes"] == ["follow"]
 
 
+@pytest.mark.parametrize("other, target", [
+    ("https://target.example/Tool", "https://target.example/tool"),
+    ("https://target.example/tool?id=1", "https://target.example/tool?id=2"),
+    ("https://target.example/tool?id=ABC", "https://target.example/tool?id=abc"),
+    ("https://target.example/tool", "https://target.example/tool?id=1"),
+    ("https://target.example/tool;v=1", "https://target.example/tool;v=2"),
+])
+def test_exact_link_preserves_case_query_and_params(fake_network, other, target):
+    fake_network["page"] = _page(_html(
+        f'<nav><a href="{other}" rel="nofollow">other page</a></nav>'
+        f'<p><a href="{target}">target page</a></p>'
+    ))
+    result = verify_backlinks.verify_single_backlink(SOURCE, target)
+    assert result["match_type"] == "exact_url"
+    assert result["anchor_text"] == "target page"
+    assert result["rel_attributes"] == ["follow"]
+
+
+@pytest.mark.parametrize("other", [
+    "https://target.example/Tool",
+    "https://target.example/tool?id=1",
+    "https://target.example/tool;v=1",
+])
+def test_different_resource_on_same_domain_is_not_exact(fake_network, other):
+    fake_network["page"] = _page(_html(f'<a href="{other}">other page</a>'))
+    result = verify_backlinks.verify_single_backlink(SOURCE, TARGET)
+    assert result["status"] == "verified"
+    assert result["match_type"] == "domain_match"
+
+
+@pytest.mark.parametrize("link", [
+    "https://TARGET.EXAMPLE/tool",
+    "https://target.example/tool/",
+    "https://target.example/tool#details",
+])
+def test_equivalent_target_normalization_is_preserved(fake_network, link):
+    fake_network["page"] = _page(_html(f'<a href="{link}">target page</a>'))
+    result = verify_backlinks.verify_single_backlink(SOURCE, TARGET)
+    assert result["match_type"] == "exact_url"
+
+
 def test_domain_match_still_reported_when_no_exact_link(fake_network):
     fake_network["page"] = _page(_html(
         '<a href="https://sub.target.example/x">sub</a>'

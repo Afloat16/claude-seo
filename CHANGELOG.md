@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Backlink verification preserves path case, query strings and path parameters
+  when comparing exact target URLs, so a different resource on the same domain
+  cannot hide the target link or supply its anchor text and follow attributes.
+
 ## [2.6.0] - 2026-11-10
 
 Deterministic checks ported from web-obs, the sister crawler project. Work
