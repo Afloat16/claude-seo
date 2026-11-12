@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keyword Planner ideas now follow Google Ads pagination up to the requested
+  limit, preserving later-page errors and avoiding unneeded page requests.
+
 ## [2.6.0] - 2026-11-10
 
 Deterministic checks ported from web-obs, the sister crawler project. Work
