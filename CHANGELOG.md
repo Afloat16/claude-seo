@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Matomo organic landing-page reports use `entry_nb_visits` for displayed
+  visits and server-side ranking. Visits that only included a page no longer
+  inflate its landing traffic or displace actual top entry pages.
+
 ## [2.6.0] - 2026-11-10
 
 Deterministic checks ported from web-obs, the sister crawler project. Work

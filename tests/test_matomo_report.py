@@ -368,12 +368,62 @@ def test_organic_report_builds_daily_and_pages(monkeypatch):
     assert len(data["top_pages"]) == 2
     top = data["top_pages"][0]
     assert top["url"] == "en"
-    assert top["visits"] == 146
+    assert top["visits"] == 111
     assert top["actions"] == 583
     assert top["hits"] == 181
     # 23 bounces / 111 entry visits
     assert top["bounce_rate"] == 20.7
     assert top["bounce_rate"] == round(23 / 111 * 100, 1)
+
+
+def test_landing_pages_are_ranked_by_entry_visits(monkeypatch):
+    pages = [
+        {"label": "/popular", "nb_visits": 500, "entry_nb_visits": 10},
+        {"label": "/landing", "nb_visits": 100, "entry_nb_visits": 80},
+    ]
+    monkeypatch.setattr(matomo_report, "_request", lambda url, token, params:
+                        matomo_report._envelope("success", pages if params["method"] ==
+                                                "Actions.getEntryPageUrls" else {}))
+    result = matomo_report.organic_traffic_report("1", "https://m.test", SECRET_TOKEN)
+    assert [(p["url"], p["visits"]) for p in result["data"]["top_pages"]] == [
+        ("/landing", 80), ("/popular", 10),
+    ]
+
+
+def test_entry_sort_is_requested_before_the_server_limits_rows(monkeypatch):
+    pages = [
+        {"label": "/popular", "nb_visits": 500, "entry_nb_visits": 10},
+        {"label": "/landing", "nb_visits": 100, "entry_nb_visits": 80},
+    ]
+
+    def request(url, token, params):
+        if params["method"] == "Actions.getEntryPageUrls":
+            rows = sorted(pages, key=lambda p: p[params["filter_sort_column"]], reverse=True)
+            return matomo_report._envelope("success", rows[:int(params["filter_limit"])])
+        return matomo_report._envelope("success", {})
+
+    monkeypatch.setattr(matomo_report, "_request", request)
+    result = matomo_report.top_pages_report("1", "https://m.test", SECRET_TOKEN, limit=1)
+    assert [(p["url"], p["visits"]) for p in result["data"]["pages"]] == [("/landing", 80)]
+
+
+def test_zero_entries_do_not_fall_back_to_page_visits(monkeypatch):
+    pages = [{"label": "/zero", "nb_visits": 100, "entry_nb_visits": 0}]
+    monkeypatch.setattr(matomo_report, "_request", lambda url, token, params:
+                        matomo_report._envelope("success", pages if params["method"] ==
+                                                "Actions.getEntryPageUrls" else {}))
+    result = matomo_report.top_pages_report("1", "https://m.test", SECRET_TOKEN)
+    assert result["data"]["pages"][0]["visits"] == 0
+
+
+def test_entry_bounce_rate_keeps_the_entry_visit_denominator(monkeypatch):
+    pages = [{"label": "/landing", "nb_visits": 100, "entry_nb_visits": 40,
+              "entry_bounce_count": 10}]
+    monkeypatch.setattr(matomo_report, "_request", lambda url, token, params:
+                        matomo_report._envelope("success", pages if params["method"] ==
+                                                "Actions.getEntryPageUrls" else {}))
+    result = matomo_report.top_pages_report("1", "https://m.test", SECRET_TOKEN)
+    assert result["data"]["pages"][0]["bounce_rate"] == 25.0
 
 
 def test_top_pages_report_propagates_entry_page_error():
@@ -421,7 +471,7 @@ def test_top_pages_report_keeps_success_path():
     assert env["error"] is None
     assert env["data"]["total_organic_visits"] == 100
     assert env["data"]["pages"][0]["url"] == "/landing"
-    assert env["data"]["pages"][0]["visits"] == 42
+    assert env["data"]["pages"][0]["visits"] == 40
 
 
 def test_top_pages_cli_reports_failure_in_human_and_json_modes(
