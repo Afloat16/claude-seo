@@ -66,6 +66,7 @@ KNOWN_RELEASES = [
 VERTICES_SUFFIX = "-domain-vertices.txt.gz"
 EDGES_SUFFIX = "-domain-edges.txt.gz"
 RANKINGS_SUFFIX = "-domain-ranks.txt.gz"
+MAX_GRAPH_DOWNLOAD_BYTES = 500 * 1024 * 1024
 
 
 def _graph_file_url(release: str, suffix: str) -> str:
@@ -182,6 +183,16 @@ def _is_cached(domain: str, release: str) -> Optional[dict]:
             # Check cache age (90 days max)
             cached_time = cached.get("metadata", {}).get("cached_at", 0)
             if time.time() - cached_time < 90 * 86400:
+                # Older versions cached absence even when a graph read failed.
+                # A positive match remains evidence, but an old negative does not.
+                data = cached.get("data")
+                if not isinstance(data, dict):
+                    return None
+                if (
+                    not data.get("in_crawl")
+                    and not cached.get("metadata", {}).get("lookup_complete")
+                ):
+                    return None
                 return cached
         except (json.JSONDecodeError, IOError):
             pass
@@ -199,7 +210,7 @@ def _save_cache(domain: str, release: str, data: dict) -> None:
 def _stream_gz_chunked(url: str, target_domain: str, timeout: int = 120,
                         max_lines: int = 0) -> list:
     """
-    Stream a gzipped file and filter for lines matching the target domain.
+    Stream a gzipped file and filter for exact target-domain fields.
 
     Uses incremental zlib decompression to process large gzipped files
     without loading everything into memory. Stops early when enough matches
@@ -212,13 +223,23 @@ def _stream_gz_chunked(url: str, target_domain: str, timeout: int = 120,
         max_lines: Maximum matching lines to return (0 = unlimited).
 
     Returns:
-        List of matching lines (tab-separated field lists).
+        List of matching lines (tab-separated field lists). An empty list
+        means the complete archive was read successfully, not an aborted scan.
+
+    Raises on a failed, corrupt, truncated, or budget-limited read.
     """
     import zlib
 
     matches = []
-    max_compressed_bytes = 500 * 1024 * 1024  # 500 MiB safety cap
     total_downloaded = 0
+    resp = None
+
+    def collect(line: str) -> None:
+        line = line.strip()
+        if line and not line.startswith("#"):
+            fields = line.split("\t")
+            if target_domain in fields:
+                matches.append(fields)
 
     try:
         resp = requests.get(url, stream=True, timeout=timeout)
@@ -230,35 +251,29 @@ def _stream_gz_chunked(url: str, target_domain: str, timeout: int = 120,
 
         for chunk in resp.iter_content(chunk_size=256 * 1024):  # 256 KiB chunks
             total_downloaded += len(chunk)
-            if total_downloaded > max_compressed_bytes:
-                break
+            if total_downloaded > MAX_GRAPH_DOWNLOAD_BYTES:
+                raise RuntimeError("Graph download exceeded the 500 MiB safety limit before finding the domain")
 
-            try:
+            # A .gz archive may concatenate several gzip members. Continue
+            # through all of them before declaring a domain absent.
+            while chunk:
+                if decompressor.eof:
+                    decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
                 text = decompressor.decompress(chunk).decode("utf-8", errors="replace")
-            except zlib.error:
-                break
+                chunk = decompressor.unused_data
+                lines = (leftover + text).split("\n")
+                leftover = lines[-1]
+                for line in lines[:-1]:
+                    collect(line)
+                    if max_lines and len(matches) >= max_lines:
+                        return matches
 
-            text = leftover + text
-            lines = text.split("\n")
-            leftover = lines[-1]  # Incomplete last line carries over
-
-            for line in lines[:-1]:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                fields = line.split("\t")
-                for field in fields:
-                    if field == target_domain or field.endswith(f".{target_domain}"):
-                        matches.append(fields)
-                        break
-                if max_lines and len(matches) >= max_lines:
-                    resp.close()
-                    return matches
-
-    except requests.exceptions.Timeout:
-        pass  # Return whatever we found so far
-    except MemoryError:
-        pass
+        if not decompressor.eof:
+            raise RuntimeError("Graph gzip archive ended before its final member was complete")
+        collect(leftover)
+    finally:
+        if resp is not None:
+            resp.close()
 
     return matches
 
@@ -326,7 +341,7 @@ def get_domain_metrics(domain: str, release: Optional[str] = None,
 
     try:
         ranking_matches = _stream_gz_chunked(rankings_url, reversed_domain,
-                                              timeout=timeout, max_lines=5)
+                                              timeout=timeout, max_lines=1)
         for fields in ranking_matches:
             if len(fields) >= 6:
                 # fields[4] is the reversed hostname (e.g., com.google)
@@ -340,10 +355,16 @@ def get_domain_metrics(domain: str, release: Optional[str] = None,
                     }
                     break
     except Exception as e:
-        rankings_data = {"error": str(e)}
+        return {
+            "status": "error",
+            "data": None,
+            "error": f"Common Crawl rankings lookup failed: {e}",
+            "metadata": {"source": "commoncrawl", "release": release},
+        }
 
     # If not found in rankings, check vertices file to confirm domain was crawled at all
-    in_rankings = bool(rankings_data.get("pagerank"))
+    # Presence is established by the matched record, including a zero score.
+    in_rankings = "pagerank" in rankings_data
     in_crawl = in_rankings  # If in rankings, definitely in crawl
 
     if not in_rankings:
@@ -352,8 +373,13 @@ def get_domain_metrics(domain: str, release: Optional[str] = None,
             vertex_matches = _stream_gz_chunked(vertices_url, reversed_domain,
                                                  timeout=min(timeout, 60), max_lines=1)
             in_crawl = len(vertex_matches) > 0
-        except Exception:
-            pass  # Vertices file may be very large; timeout is acceptable
+        except Exception as e:
+            return {
+                "status": "error",
+                "data": None,
+                "error": f"Common Crawl vertices lookup failed: {e}",
+                "metadata": {"source": "commoncrawl", "release": release},
+            }
 
     # Build appropriate note based on what we found
     if in_rankings:
@@ -381,6 +407,7 @@ def get_domain_metrics(domain: str, release: Optional[str] = None,
             "source": "commoncrawl",
             "release": release,
             "from_cache": False,
+            "lookup_complete": True,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         },
     }
@@ -518,6 +545,7 @@ def main():
             print(f"  Number of hosts:           {data.get('n_hosts', 'N/A')}")
         elif result.get("error"):
             print(f"Error: {result['error']}", file=sys.stderr)
+    sys.exit(0 if result["status"] == "success" else 1)
 
 
 if __name__ == "__main__":

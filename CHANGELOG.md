@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep failed or incomplete Common Crawl graph reads distinct from a confirmed
+  absent domain; avoid negative caching, reject old unverified negatives, and
+  stop downloading immediately after an exact ranking match.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security
