@@ -265,6 +265,94 @@ def test_analyze_html_extracts_signals_from_visible_markup() -> None:
     assert signals["images_without_alt"] == 1
 
 
+@pytest.mark.parametrize("metadata", [
+    """
+    <meta content="The shop's blue bottle." name="description">
+    <meta content="noindex,follow" name="robots">
+    <link href="https://s.example/products/bottle?color=blue&amp;size=large" rel="canonical">
+    <link hreflang="de" href="https://s.example/de/products/bottle" rel="alternate">
+    """,
+    """
+    <META NAME = description CONTENT = "The shop's blue bottle.">
+    <META CONTENT=noindex,follow NAME=ROBOTS>
+    <LINK HREF="https://s.example/products/bottle?color=blue&amp;size=large" REL="CANONICAL">
+    <LINK HREF=https://s.example/de/products/bottle HREFLANG=de REL=ALTERNATE>
+    """,
+])
+def test_metadata_attributes_are_parsed_independently_of_order_and_quoting(metadata: str) -> None:
+    signals = crawl.analyze_html(f"<html><head>{metadata}</head><body></body></html>")
+    assert signals["meta_description"] == "The shop's blue bottle."
+    assert signals["meta_description_length"] == len("The shop's blue bottle.")
+    assert signals["canonical"] == "https://s.example/products/bottle?color=blue&size=large"
+    assert signals["robots_meta"] == "noindex,follow"
+    assert signals["hreflang"] == ["de"]
+
+
+@pytest.mark.parametrize("opening,closing", [
+    ("<!--", "-->"),
+    ('<script type="text/template">', "</script>"),
+    ("<template>", "</template>"),
+])
+def test_inert_metadata_does_not_override_the_page(opening: str, closing: str) -> None:
+    html = f"""<html><head>{opening}
+    <meta name="description" content="Example only">
+    <meta name="robots" content="noindex">
+    <link rel="canonical" href="https://wrong.example/">
+    <link rel="alternate" hreflang="fr" href="https://wrong.example/fr/">
+    {closing}
+    <meta name="description" content="Real page">
+    <meta name="robots" content="index,follow">
+    <link rel="canonical" href="https://s.example/products/bottle">
+    <link rel="alternate" hreflang="de" href="https://s.example/de/products/bottle">
+    </head><body></body></html>"""
+
+    signals = crawl.analyze_html(html)
+
+    assert signals["meta_description"] == "Real page"
+    assert signals["robots_meta"] == "index,follow"
+    assert signals["canonical"] == "https://s.example/products/bottle"
+    assert signals["hreflang"] == ["de"]
+
+
+def test_metadata_character_references_are_decoded_once() -> None:
+    signals = crawl.analyze_html('''<html><head>
+    <meta name="description" content="Show &amp;amp; literally">
+    <link rel="canonical" href="https://s.example/?literal=&amp;amp;">
+    </head></html>''')
+    assert signals["meta_description"] == "Show &amp; literally"
+    assert signals["canonical"] == "https://s.example/?literal=&amp;"
+
+
+def test_noscript_fallback_metadata_remains_available_without_javascript() -> None:
+    signals = crawl.analyze_html('''<html><head><noscript>
+    <meta name="description" content="Fallback &amp; details">
+    <meta name="robots" content="noindex,follow">
+    <link rel="canonical" href="https://s.example/products/fallback">
+    <link rel="alternate" hreflang="de" href="https://s.example/de/products/fallback">
+    </noscript></head><body></body></html>''')
+    assert signals["meta_description"] == "Fallback & details"
+    assert signals["robots_meta"] == "noindex,follow"
+    assert signals["canonical"] == "https://s.example/products/fallback"
+    assert signals["hreflang"] == ["de"]
+
+
+def test_crawled_metadata_drives_canonical_and_noindex_summary() -> None:
+    html = b'''<html><head><title>Bottle</title>
+    <meta content="noindex,follow" name="robots">
+    <link href="https://shop.example/products/a" rel="canonical">
+    </head><body><h1>Bottle</h1></body></html>'''
+    response = _Response(200, html, {"Content-Type": "text/html"})
+    session = _Session({"https://shop.example/products/a": response})
+
+    record = crawl.crawl_one(lambda: session, "https://shop.example/products/a", ORIGIN,
+                             None, crawl.RateLimitGovernor(0), timeout=5, save_html_dir=None)
+    summary = crawl.summarize([record])
+
+    assert summary["issues"]["missing_canonical"] == 0
+    assert summary["issues"]["noindex"] == 1
+    assert response.closed
+
+
 def test_summary_counts_only_html_documents_and_flags_duplicates() -> None:
     page = {"status": 200, "html": True, "template": "product", "elapsed_ms": 100,
             "content_type": "text/html", "title": "Same", "title_length": 4,

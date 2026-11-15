@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Parse Shopify page metadata as HTML so attribute order and quoting do not
+  hide canonical, robots, hreflang, or description values, and inert example
+  tags do not override the live page's metadata or summary findings.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

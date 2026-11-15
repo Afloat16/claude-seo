@@ -405,8 +405,7 @@ STRIP_RE = re.compile(r"<[^>]+>")
 
 
 def analyze_html(html: str) -> dict:
-    """Regex-level extraction, dependency-free. Aggregate signals only; the
-    per-page subagents still do real DOM analysis on the sample."""
+    """Extract bounded aggregate signals for the per-page audit."""
     def collapse(value: str) -> str:
         return re.sub(r"\s+", " ", unescape(value)).strip()
 
@@ -415,14 +414,39 @@ def analyze_html(html: str) -> dict:
         return collapse(found.group(1)) if found else None
 
     title = first(r"<title[^>]*>(.*?)</title>")
-    description = first(r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']')
-    if not description:
-        description = first(r'<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']description["\']')
-    canonical = first(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\'](.*?)["\']')
-    robots_meta = first(r'<meta[^>]+name=["\']robots["\'][^>]+content=["\'](.*?)["\']')
+    description = canonical = robots_meta = None
+    hreflang: list[str] = []
+
+    # Attributes can appear in any order, use either quote style, or be
+    # unquoted. Parsing also keeps example tags in comments and raw text
+    # from becoming live metadata. Reuse the existing lxml dependency.
+    document = etree.HTML(html.encode("utf-8"),
+                          parser=etree.HTMLParser(encoding="utf-8", no_network=True))
+
+    def attribute(element, name: str) -> str | None:
+        value = element.get(name)
+        # The HTML parser already decoded character references once.
+        return re.sub(r"\s+", " ", value).strip() if value is not None else None
+
+    if document is not None:
+        for element in document.iter("meta", "link"):
+            if any(parent.tag in {"script", "style", "template"}
+                   for parent in element.iterancestors()):
+                continue
+            if element.tag == "meta":
+                name = (element.get("name") or "").lower()
+                if name == "description" and not description:
+                    description = attribute(element, "content")
+                elif name == "robots" and not robots_meta:
+                    robots_meta = attribute(element, "content")
+            else:
+                relations = (element.get("rel") or "").lower().split()
+                if "canonical" in relations and not canonical:
+                    canonical = attribute(element, "href")
+                if "alternate" in relations and element.get("hreflang"):
+                    hreflang.append(element.get("hreflang"))
 
     h1s = re.findall(r"<h1[^>]*>(.*?)</h1>", html, re.I | re.S)
-    hreflang = re.findall(r'<link[^>]+rel=["\']alternate["\'][^>]+hreflang=["\']([^"\']+)', html, re.I)
 
     schema_types: list[str] = []
     for block in re.findall(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
