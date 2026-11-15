@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- IPTC audits report failed or timed-out metadata reads as unreadable images, preserve
+  results for other files and exit nonzero. A failed read no longer counts as a missing label.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

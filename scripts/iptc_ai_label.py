@@ -70,7 +70,7 @@ def _iter_images(target: Path) -> Iterable[Path]:
 
 
 def _read_source_type(image: Path) -> Optional[str]:
-    """Read XMP-iptcExt:DigitalSourceType from a single image. None if missing."""
+    """Read the source type; None means absent, while failed reads raise RuntimeError."""
     if not exiftool_available():
         raise RuntimeError("exiftool not installed; install via apt/brew")
     try:
@@ -87,8 +87,12 @@ def _read_source_type(image: Path) -> Optional[str]:
             errors="replace",
             timeout=15,
         )
-    except subprocess.TimeoutExpired:
-        return None
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("exiftool-timeout") from exc
+    except OSError as exc:
+        raise RuntimeError(f"exiftool-failed: {exc}") from exc
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "exiftool-failed")
     value = result.stdout.strip()
     return value or None
 
@@ -109,16 +113,26 @@ def audit(target: Path) -> dict:
         return report
 
     counts: dict[str, int] = {"missing": 0, **{label: 0 for label in IPTC_VOCAB},
-                              "other": 0}
+                              "other": 0, "read_errors": 0}
     for image in _iter_images(target):
-        value = _read_source_type(image)
+        try:
+            value = _read_source_type(image)
+        except RuntimeError as exc:
+            counts["read_errors"] += 1
+            report["images"].append({
+                "path": str(image),
+                "source_type": None,
+                "label": "unreadable",
+                "error": str(exc),
+            })
+            continue
         if value is None:
             label = "missing"
         else:
             # Vocabulary values are returned either as bare names or as
             # the full IPTC URI; normalise to the bare name.
             short = value.rsplit("/", 1)[-1]
-            if short in counts:
+            if short in IPTC_VOCAB:
                 label = short
             else:
                 label = "other"
@@ -199,15 +213,16 @@ def _cli() -> None:
         report = audit(Path(args.target))
         if args.json:
             print(json.dumps(report, indent=2))
-            sys.exit(0 if "error" not in report["summary"] else 2)
+            failed = "error" in report["summary"] or report["summary"].get("read_errors", 0)
+            sys.exit(2 if failed else 0)
         print(f"Target: {report['target']}")
         if "error" in report["summary"]:
             print(f"Error: {report['summary']['error']}", file=sys.stderr)
             sys.exit(2)
         print(f"Total images: {report['summary'].get('total')}")
-        for label in ("missing", *sorted(IPTC_VOCAB), "other"):
+        for label in ("missing", *sorted(IPTC_VOCAB), "other", "read_errors"):
             print(f"  {label}: {report['summary'].get(label, 0)}")
-        sys.exit(0)
+        sys.exit(2 if report["summary"].get("read_errors", 0) else 0)
     elif args.command == "inject":
         out = inject(Path(args.image), args.source_type)
         if args.json:
