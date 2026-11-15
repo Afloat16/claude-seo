@@ -344,10 +344,10 @@ def test_organic_report_builds_daily_and_pages(monkeypatch):
                        "bounce_count": 10, "sum_visit_length": 3000},
     }
     pages = [
-        {"label": "en", "nb_visits": 146, "nb_hits": 181,
+        {"label": "/en", "url": "https://example.com/en", "nb_visits": 146, "nb_hits": 181,
          "entry_nb_visits": 111, "entry_nb_actions": 583,
          "entry_bounce_count": 23},
-        {"label": "blog", "nb_visits": 90, "nb_hits": 120,
+        {"label": "/blog", "url": "https://example.com/blog", "nb_visits": 90, "nb_hits": 120,
          "entry_nb_visits": 60, "entry_nb_actions": 240,
          "entry_bounce_count": 6},
     ]
@@ -367,8 +367,8 @@ def test_organic_report_builds_daily_and_pages(monkeypatch):
     assert data["daily_data"][0]["bounce_rate"] == 30.0
     assert len(data["top_pages"]) == 2
     top = data["top_pages"][0]
-    assert top["url"] == "en"
-    assert top["visits"] == 146
+    assert top["url"] == "https://example.com/en"
+    assert top["visits"] == 111
     assert top["actions"] == 583
     assert top["hits"] == 181
     # 23 bounces / 111 entry visits
@@ -421,7 +421,56 @@ def test_top_pages_report_keeps_success_path():
     assert env["error"] is None
     assert env["data"]["total_organic_visits"] == 100
     assert env["data"]["pages"][0]["url"] == "/landing"
-    assert env["data"]["pages"][0]["visits"] == 42
+    assert env["data"]["pages"][0]["visits"] == 40
+
+
+def test_top_pages_flattens_and_ranks_entries_before_limiting():
+    """A popular internal page must not displace the strongest landing page."""
+    leaves = [
+        {"label": "/products/widget", "url": "https://example.com/products/widget",
+         "nb_visits": 90, "entry_nb_visits": 80},
+        {"label": "/products/accessory", "url": "https://example.com/products/accessory",
+         "nb_visits": 200, "entry_nb_visits": 10},
+    ]
+
+    def respond(_url, *, data, **_kwargs):
+        if data["method"] == "VisitsSummary.get":
+            return _mock_response(200, {})
+        rows = leaves if data.get("flat") == "1" else [
+            {"label": "products", "nb_visits": 290, "entry_nb_visits": 90,
+             "idsubdatatable": 1},
+        ]
+        rows = sorted(rows, key=lambda row: row[data["filter_sort_column"]], reverse=True)
+        return _mock_response(200, rows[:int(data["filter_limit"])])
+
+    with _patch_session(side_effect=respond):
+        env = matomo_report.top_pages_report("1", "https://m.test", SECRET_TOKEN, limit=1)
+
+    assert env["status"] == "success"
+    assert len(env["data"]["pages"]) == 1
+    assert env["data"]["pages"][0]["url"] == "https://example.com/products/widget"
+    assert env["data"]["pages"][0]["visits"] == 80
+
+
+@pytest.mark.parametrize("entry_unique_field", [
+    "entry_nb_uniq_visitors", "sum_daily_entry_nb_uniq_visitors",
+])
+def test_top_pages_uses_entry_visitors_and_sorts_by_entry_visits(entry_unique_field):
+    pages = [
+        {"label": "/popular-internal", "nb_visits": 1000, "nb_uniq_visitors": 900,
+         "entry_nb_visits": 20, entry_unique_field: 15, "entry_bounce_count": 2},
+        {"label": "/landing", "nb_visits": 200, "nb_uniq_visitors": 180,
+         "entry_nb_visits": 100, entry_unique_field: 80, "entry_bounce_count": 25},
+    ]
+    responses = [_mock_response(200, {}), _mock_response(200, pages)]
+    with _patch_session(side_effect=responses):
+        env = matomo_report.top_pages_report("1", "https://m.test", SECRET_TOKEN)
+
+    top = env["data"]["pages"][0]
+    assert top["url"] == "/landing"
+    assert top["visits"] == 100
+    assert top["unique_visitors"] == 80
+    assert top["bounce_rate"] == 25.0
 
 
 def test_top_pages_cli_reports_failure_in_human_and_json_modes(

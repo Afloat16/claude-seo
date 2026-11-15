@@ -272,8 +272,9 @@ def organic_traffic_report(site_id: str, url: str, token: str,
         "period": "range",
         "date": date_arg,
         "segment": "referrerType==search",
+        "flat": "1",
         "filter_limit": str(min(limit, MAX_LIMIT)),
-        "filter_sort_column": "nb_visits",
+        "filter_sort_column": "entry_nb_visits",
         "filter_sort_order": "desc",
     })
     top_pages = []
@@ -285,9 +286,10 @@ def organic_traffic_report(site_id: str, url: str, token: str,
         for row in _rows(pages_resp["data"]):
             entry_visits = _bounded_int(row.get("entry_nb_visits"))
             top_pages.append({
-                "url": row.get("label", ""),
-                "visits": _bounded_int(row.get("nb_visits")),
-                "unique_visitors": _uniq(row),
+                "url": row.get("url") or row.get("label", ""),
+                "visits": entry_visits,
+                "unique_visitors": _bounded_int(row.get(
+                    "entry_nb_uniq_visitors", row.get("sum_daily_entry_nb_uniq_visitors"))),
                 "actions": _bounded_int(row.get("entry_nb_actions")),
                 "bounce_rate": _bounce_rate_pct(
                     row.get("entry_bounce_count"), entry_visits),

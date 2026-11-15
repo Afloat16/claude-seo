@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Matomo organic landing-page reports return individual page URLs and rank them by entry
+  visits before applying the limit. Visit and visitor counts now describe entries, matching
+  the report's entry actions and bounce rate.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security
