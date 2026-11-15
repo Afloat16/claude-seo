@@ -51,9 +51,10 @@ _LCP_SUBPART_METRICS = [
 def _query_crux(url: str, form_factor: str, api_key: str) -> dict:
     payload = {
         "url": url,
-        "formFactor": form_factor,
         "metrics": _LCP_SUBPART_METRICS + ["largest_contentful_paint"],
     }
+    if form_factor != "ALL_FORM_FACTORS":
+        payload["formFactor"] = form_factor
     body = json.dumps(payload).encode("utf-8")
     headers = {"Content-Type": "application/json", **google_api_key_headers(api_key)}
     request = urllib.request.Request(
