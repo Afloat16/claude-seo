@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- GA4 organic reports use the API's aggregate user total instead of adding daily users,
+  which counted returning users repeatedly. An unavailable aggregate is reported as unknown.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

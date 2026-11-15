@@ -24,6 +24,7 @@ try:
         Filter,
         FilterExpression,
         Metric,
+        MetricAggregation,
         OrderBy,
         RunReportRequest,
     )
@@ -152,10 +153,15 @@ def organic_traffic_report(
             ),
             order_bys=[OrderBy(dimension=OrderBy.DimensionOrderBy(dimension_name="date"))],
             limit=days + 5,
+            metric_aggregations=[MetricAggregation.TOTAL],
             return_property_quota=True,
         )
 
         daily_response = client.run_report(daily_request)
+        total_users = (
+            int(daily_response.totals[0].metric_values[1].value)
+            if daily_response.totals else None
+        )
 
         for row in daily_response.rows:
             result["daily_data"].append({
@@ -246,7 +252,6 @@ def organic_traffic_report(
     # Calculate totals
     if result["daily_data"]:
         total_sessions = sum(d["sessions"] for d in result["daily_data"])
-        total_users = sum(d["users"] for d in result["daily_data"])
         total_pageviews = sum(d["pageviews"] for d in result["daily_data"])
         result["totals"] = {
             "sessions": total_sessions,
@@ -254,6 +259,11 @@ def organic_traffic_report(
             "pageviews": total_pageviews,
             "avg_daily_sessions": round(total_sessions / len(result["daily_data"]), 1),
         }
+        if total_users is None:
+            result["totals_warning"] = (
+                "GA4 did not return the requested aggregate users total; "
+                "daily user counts cannot be summed into distinct period users."
+            )
 
     return result
 
@@ -492,6 +502,9 @@ def main():
         if not args.json:
             sys.exit(1)
 
+    if result.get("totals_warning"):
+        print(f"Warning: {result['totals_warning']}", file=sys.stderr)
+
     if args.json:
         print(json.dumps(result, indent=2, default=str))
     else:
@@ -509,7 +522,9 @@ def main():
             print(f"Property: {prop}")
             dr = result.get("date_range", {})
             print(f"Period: {dr.get('start')} to {dr.get('end')}")
-            print(f"\nSessions: {totals.get('sessions', 0):,} | Users: {totals.get('users', 0):,} | Pageviews: {totals.get('pageviews', 0):,}")
+            users = totals.get("users")
+            users_display = f"{users:,}" if users is not None else "n/a"
+            print(f"\nSessions: {totals.get('sessions', 0):,} | Users: {users_display} | Pageviews: {totals.get('pageviews', 0):,}")
             print(f"Avg Daily Sessions: {totals.get('avg_daily_sessions', 0):,.0f}")
 
             quota = result.get("quota_tokens_used")
