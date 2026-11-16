@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Content cleanup preserves complete England, Scotland and Wales flag emoji
+  instead of stripping their tag characters into a black flag. Stray and
+  incomplete tag sequences continue to be removed and counted.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

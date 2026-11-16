@@ -6,7 +6,7 @@ watermarks") that AI tools and copy-paste pipelines leave behind:
 zero-width characters, directional marks, exotic spaces, and Unicode
 tag characters. Conservative by design: only replaces phrases listed
 in ``_REPLACEMENTS``, and keeps zero-width joiners / variation
-selectors that are part of real emoji sequences. Unknown idiom?
+selectors and flag tags that are part of real emoji sequences. Unknown idiom?
 Leave it alone.
 
 Statistical watermarks (e.g. SynthID-style token-probability
@@ -160,6 +160,14 @@ _EMOJI_GLUE = {
     "\ufe0f": "variation-selector-16",
 }
 
+# The complete RGI_Emoji_Tag_Sequence set: England, Scotland and Wales.
+# Recognize complete sequences only; stray or incomplete tags remain removable.
+# https://www.unicode.org/Public/emoji/latest/emoji-sequences.txt
+_EMOJI_FLAG_TAG_SEQUENCES = tuple(
+    "\U0001f3f4" + "".join(chr(0xE0000 + ord(ch)) for ch in code) + "\U000e007f"
+    for code in ("gbeng", "gbsct", "gbwls")
+)
+
 
 def _is_emoji_like(ch: str) -> bool:
     """True when ``ch`` is itself an emoji-ish symbol, not just a high codepoint.
@@ -194,7 +202,16 @@ def strip_invisible(text: str) -> tuple[str, dict]:
     """Remove invisible watermark characters; return (cleaned, counts)."""
     removed: dict[str, int] = {}
     out: list[str] = []
+    flag_end = 0
     for i, ch in enumerate(text):
+        if ch == "\U0001f3f4":
+            for sequence in _EMOJI_FLAG_TAG_SEQUENCES:
+                if text.startswith(sequence, i):
+                    flag_end = i + len(sequence)
+                    break
+        if i < flag_end:
+            out.append(ch)
+            continue
         if ch in _INVISIBLE_DELETE:
             label = _INVISIBLE_DELETE[ch]
         elif ch in _INVISIBLE_SPACE:
