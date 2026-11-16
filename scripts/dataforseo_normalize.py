@@ -391,14 +391,20 @@ def normalize_reviews(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return []
     normalized = []
     for item in items:
+        rating = item.get("rating")
+        helpful = item.get("helpful_count", item.get("likes"))
+        if isinstance(rating, dict):
+            if helpful is None:
+                helpful = rating.get("votes_count")
+            rating = rating.get("value")
         review = {
             "author": str(item.get("author", item.get("profile_name", "Anonymous"))),
-            "rating": round(_safe_float(item.get("rating")), 1),
+            "rating": round(_safe_float(rating), 1),
             "text": str(item.get("text", item.get("review_text", ""))),
-            "date": str(item.get("date", item.get("time_ago", ""))),
+            "date": str(item.get("date", item.get("timestamp", item.get("time_ago", "")))),
             "source": str(item.get("source", "")),
             "verified": bool(item.get("is_verified", False)),
-            "helpful_count": _safe_int(item.get("helpful_count", item.get("likes", 0))),
+            "helpful_count": _safe_int(helpful),
         }
         normalized.append(review)
     return normalized
