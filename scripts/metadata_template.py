@@ -157,8 +157,15 @@ def _finding(signal_id: str, severity: str, message: str, recommendation: str) -
 
 
 def _echo_remainder(core: str, description: str) -> str:
-    """What the description says after it finishes restating the title."""
-    return description[len(core):].strip(" -–—:|.")
+    """Return the tail after the normalized title text that actually matched."""
+    core_n = _normalise(core)
+    description_n = _normalise(description)
+    # Prefer the full title when present, so a CTA within the title is not
+    # mistaken for an appended one. A truncated echo matches only the same
+    # bounded prefix used by analyse(). Raw offsets differ after punctuation
+    # and whitespace normalization and can otherwise cut into the CTA.
+    matched = core_n if description_n.startswith(core_n) else core_n[:_ECHO_PREFIX_CHARS]
+    return description_n[len(matched):].strip()
 
 
 def analyse(title: str, description: str, url: str | None = None) -> dict:

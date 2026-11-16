@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Metadata template detection keeps CTA tails after title echoes with
+  different punctuation, collapsed whitespace or the supported truncated
+  prefix, instead of slicing the description at the raw full-title offset.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security
