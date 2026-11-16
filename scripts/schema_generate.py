@@ -235,6 +235,8 @@ def _print(payload: dict, args) -> int:
     cleaned = _strip_nones(payload)
     output = json.dumps(cleaned, indent=args.indent, ensure_ascii=False)
     if args.script_tag:
+        # HTML recognizes script delimiters even inside a JSON string.
+        output = output.replace("<", "\\u003c")
         print('<script type="application/ld+json">')
         print(output)
         print("</script>")

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generated JSON-LD script snippets escape HTML delimiters in their data, so
+  text containing a closing script tag cannot truncate the embedded JSON.
+  Plain JSON output and decoded string values are preserved.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security
