@@ -215,6 +215,9 @@ def organic_traffic_report(site_id: str, url: str, token: str,
 
     Combines a per-day VisitsSummary with the top organic landing pages.
     Returns an envelope with date_range, totals, daily_data, and top_pages.
+    totals.unique_visitors is known only for a single-day range with that
+    metric present; otherwise it is None. daily_unique_visitors_sum keeps the
+    sum of the reported daily counts, which can count one person on many days.
     """
     start, end = _date_range(days)
     date_arg = f"{start},{end}"
@@ -231,7 +234,7 @@ def organic_traffic_report(site_id: str, url: str, token: str,
 
     raw = summary_resp["data"] or {}
     daily_data = []
-    totals = {"visits": 0, "unique_visitors": 0, "pageviews": 0,
+    totals = {"visits": 0, "unique_visitors": None, "daily_unique_visitors_sum": 0, "pageviews": 0,
               "bounce_count": 0, "sum_visit_length": 0, "actions": 0}
     for row in sorted(_rows(raw), key=lambda r: r.get("row_key", "")):
         date_str = row.get("row_key", "")
@@ -251,7 +254,9 @@ def organic_traffic_report(site_id: str, url: str, token: str,
             "avg_time_on_site": round(sum_visit_length / visits, 1) if visits else 0.0,
         })
         totals["visits"] += visits
-        totals["unique_visitors"] += uniq
+        totals["daily_unique_visitors_sum"] += uniq
+        if start == end == date_str and row.get("nb_uniq_visitors") is not None:
+            totals["unique_visitors"] = uniq
         totals["pageviews"] += pageviews
         totals["bounce_count"] += bounce_count
         totals["sum_visit_length"] += sum_visit_length
@@ -668,8 +673,13 @@ def _print_human(result: dict, command: str) -> None:
 
     if command == "organic":
         totals = data.get("totals", {})
+        unique = totals.get("unique_visitors")
+        unique_label = f"{unique:,}" if unique is not None else "unavailable"
         print(f"\nVisits: {totals.get('visits', 0):,} | "
-              f"Unique Visitors: {totals.get('unique_visitors', 0):,}")
+              f"Unique Visitors: {unique_label}")
+        if unique is None:
+            print(f"Daily Unique Visitor Sum: {totals.get('daily_unique_visitors_sum', 0):,} "
+                  "(visitors can be counted on multiple days)")
         print(f"Avg Daily Visits: {totals.get('avg_daily_visits', 0):,.0f} | "
               f"Bounce: {totals.get('bounce_rate', 0)}%")
         print(f"Avg Time on Site: {totals.get('avg_time_on_site', 0):.1f}s")

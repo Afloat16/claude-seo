@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Matomo:** organic totals no longer call summed daily unique visitors a
+  range-level unique count. `totals.unique_visitors` is `null` unless a single
+  day's count is available; `daily_unique_visitors_sum` preserves the reported
+  daily sum, and text output explains the distinction. No extra API query is made.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

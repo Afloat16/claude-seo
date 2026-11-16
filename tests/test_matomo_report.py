@@ -362,7 +362,8 @@ def test_organic_report_builds_daily_and_pages(monkeypatch):
     data = env["data"]
     assert data["site_id"] == "1"
     assert data["totals"]["visits"] == 150
-    assert data["totals"]["unique_visitors"] == 120
+    assert data["totals"]["unique_visitors"] is None
+    assert data["totals"]["daily_unique_visitors_sum"] == 120
     assert len(data["daily_data"]) == 2
     assert data["daily_data"][0]["bounce_rate"] == 30.0
     assert len(data["top_pages"]) == 2
