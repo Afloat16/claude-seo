@@ -110,6 +110,8 @@ def _display_url(url: str) -> tuple[str, bool]:
         text = re.split(r"[?#]", url, maxsplit=1)[0]
         return re.sub(r"(?<=//)[^/]*@", "", text), True
     host = parsed.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
     try:
         port = parsed.port
     except ValueError:
@@ -131,6 +133,8 @@ def _origin(url: str) -> str:
         raise ValueError("Target must be a public HTTP or HTTPS URL")
     parsed = urlparse(url)
     netloc = parsed.hostname or ""
+    if ":" in netloc:
+        netloc = f"[{netloc}]"
     try:
         port = parsed.port
     except ValueError as exc:
