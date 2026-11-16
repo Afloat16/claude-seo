@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- HTML title extraction ignores SVG accessibility titles, so a logo or icon's
+  label cannot hide a missing page title in parser output or drift baselines.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security
