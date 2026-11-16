@@ -1,0 +1,73 @@
+name: Final SEO live URL smoke
+
+on:
+  push:
+    branches: [validation/20261116-final-smoke]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: named-footnotes
+            sha: af9e404a4786de4512a0967f860580e49db5eb0b
+          - case: ucp-registries
+            sha: d9c636396495013d73362e9648796ea3ea91ed63
+          - case: ucp-version-dates
+            sha: 1022204b644c6fb73ec994338d8cb89ddd7bb814
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.sha }}
+          sparse-checkout: scripts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install HTTP dependencies
+        run: python -m pip install requests
+      - name: Exercise the exact independent head against a public URL
+        env:
+          SMOKE_CASE: ${{ matrix.case }}
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          sys.path.insert(0, str(Path("scripts").resolve()))
+          from url_safety import safe_requests_get
+
+          case = os.environ["SMOKE_CASE"]
+          print("tested_sha", subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip())
+          if case == "named-footnotes":
+              url = "https://raw.githubusercontent.com/markdown-it/markdown-it-footnote/master/README.md"
+              response = safe_requests_get(url, timeout=30)
+              response.raise_for_status()
+              content = response.content.decode("utf-8")
+              assert "[^longnote]" in content
+              Path("live-footnotes.md").write_text(content, encoding="utf-8")
+              result = subprocess.run([sys.executable, "scripts/content_verify.py", "live-footnotes.md", "--json", "--threshold", "1"], check=True, capture_output=True, text=True)
+              report = json.loads(result.stdout)
+              assert isinstance(report["claims"], list)
+              assert 0 <= report["uncited_ratio"] <= 1
+              print("source_url", url)
+              print("http_status", response.status_code)
+              print("source_bytes", len(response.content))
+          else:
+              url = "https://flowers.ucpsandbox.com"
+              result = subprocess.run([sys.executable, "scripts/ucp_check.py", url, "--timeout", "30", "--json"], check=True, capture_output=True, text=True)
+              report = json.loads(result.stdout)
+              assert report["status_code"] == 200, report
+              assert report["profile_present"], report
+              assert report["parse"]["valid_json"], report
+              assert report["parse"]["version"], report
+              print("source_url", report["discovery_url"])
+          print(json.dumps(report, indent=2))
