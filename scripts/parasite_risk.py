@@ -51,7 +51,10 @@ import re
 import sys
 from collections import Counter, defaultdict
 from typing import Iterable
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urljoin, urlparse
+
+from bs4 import BeautifulSoup
+from bs4.element import CData, NavigableString, TemplateString
 
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPTS_DIR not in sys.path:
@@ -90,10 +93,7 @@ _COMMERCE_RE = re.compile("|".join(_COMMERCE_PATTERNS), re.IGNORECASE)
 
 
 # Outbound affiliate-link signatures. Each adds 1 hit per outbound link.
-_AFFILIATE_LINK_RE = re.compile(
-    r"\b(?:tag=|aff_id=|affid=|partnerid=|ref_=|utm_source=|utm_campaign=)",
-    re.IGNORECASE,
-)
+_AFFILIATE_PARAMETERS = {"tag", "aff_id", "affid", "partnerid", "ref_", "utm_source", "utm_campaign"}
 
 
 def _subfolder(url: str) -> str:
@@ -104,9 +104,36 @@ def _subfolder(url: str) -> str:
 
 
 def _audit_page(url: str, html: str) -> dict:
-    third_party_hits = len(_THIRD_PARTY_RE.findall(html))
-    commerce_hits = len(_COMMERCE_RE.findall(html))
-    affiliate_link_hits = len(_AFFILIATE_LINK_RE.findall(html))
+    soup = BeautifulSoup(html, "html.parser")
+    for node in soup.find_all(["script", "style", "template"]):
+        if node.name == "template" and node.get("shadowrootmode") in ("open", "closed"):
+            continue
+        node.decompose()
+    text = (soup.body or soup).get_text(
+        " ", strip=True, types=(NavigableString, CData, TemplateString),
+    )
+    third_party_hits = len(_THIRD_PARTY_RE.findall(text))
+    commerce_hits = len(_COMMERCE_RE.findall(text))
+
+    host = (urlparse(url).hostname or "").lower().rstrip(".")
+    base_url = url
+    base = soup.find("base", href=True)
+    if base:
+        try:
+            base_url = urljoin(url, base["href"])
+        except ValueError:
+            pass
+    affiliate_link_hits = 0
+    for anchor in soup.find_all("a", href=True):
+        try:
+            target = urlparse(urljoin(base_url, anchor["href"]))
+            target_host = (target.hostname or "").lower().rstrip(".")
+        except ValueError:
+            continue
+        if target.scheme not in ("http", "https") or not target_host or target_host == host:
+            continue
+        if any(key.lower() in _AFFILIATE_PARAMETERS for key, _ in parse_qsl(target.query)):
+            affiliate_link_hits += 1
     return {
         "url": url,
         "third_party_hits": third_party_hits,

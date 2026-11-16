@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Parasite-risk scans derive disclosure and commerce signals from HTML text
+  rather than script, style, comment and attribute literals. Affiliate
+  density counts each outbound HTTP anchor once, using its query parameters,
+  instead of counting tracking strings anywhere in the page source.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security
