@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- GBP deprecation lint rejects HTTP error pages and reports input acquisition
+  failures as errors with exit status 2. Unavailable pages no longer receive a
+  clean audit result; successful audits keep their existing 0/1 exit statuses.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

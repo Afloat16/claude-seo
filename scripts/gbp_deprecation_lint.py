@@ -20,7 +20,7 @@ Usage::
     python scripts/gbp_deprecation_lint.py page.html --file
     python scripts/gbp_deprecation_lint.py https://example.com --json
 
-Exit code 0 if no deprecated patterns found, 1 otherwise.
+Exit code 0 if no deprecated patterns found, 1 for findings, 2 for input errors.
 """
 
 from __future__ import annotations
@@ -31,6 +31,8 @@ import os
 import re
 import sys
 from pathlib import Path
+
+from requests import RequestException
 
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPTS_DIR not in sys.path:
@@ -105,15 +107,27 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    if args.file:
-        html = Path(args.source).read_text(encoding="utf-8", errors="replace")
-    else:
-        try:
+    try:
+        if args.file:
+            html = Path(args.source).read_text(encoding="utf-8", errors="replace")
+        else:
             resp = safe_requests_get(args.source, timeout=20)
+            resp.raise_for_status()
             html = decode_response_text(resp)
-        except URLSafetyError as exc:
-            print(f"Error: url_safety: {exc}", file=sys.stderr)
-            return 2
+    except (URLSafetyError, RequestException, OSError) as exc:
+        if isinstance(exc, URLSafetyError):
+            error = f"url_safety: {exc}"
+        elif isinstance(exc, RequestException):
+            response = getattr(exc, "response", None)
+            detail = f"HTTP {response.status_code}" if response is not None else type(exc).__name__
+            error = f"Could not fetch page ({detail})"
+        else:
+            error = f"Could not read input file ({type(exc).__name__})"
+        if args.json:
+            print(json.dumps({"ok": False, "error": error}, indent=2))
+        else:
+            print(f"Error: {error}", file=sys.stderr)
+        return 2
 
     result = scan(html)
 
