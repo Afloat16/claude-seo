@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Agent discovery preserves Markdown alternates and AI catalog links when
+  HTTP Link parameters contain quoted commas, angle brackets or escaped
+  quotes. Quoted text cannot create fake links, and the first relation and
+  media-type parameters remain effective as required by RFC 8288.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

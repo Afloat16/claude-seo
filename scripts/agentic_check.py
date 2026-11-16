@@ -929,17 +929,48 @@ def _link_signals(soup, link_header: str, base: str) -> dict:
             "ai_catalog_html": [u for u in ai_catalog if u not in header_urls]}
 
 
-def parse_link_header(value: str) -> list:
-    """Minimal RFC 8288 parser: ``<uri>; rel="a b"; type="x"``.
+def _link_header_values(value: str):
+    """Split on commas outside URI references and quoted parameter values."""
+    start = 0
+    quoted = escaped = in_uri = False
+    for index, char in enumerate(value):
+        if in_uri:
+            if char == ">":
+                in_uri = False
+        elif quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == "<":
+            in_uri = True
+        elif char == '"':
+            quoted = True
+        elif char == ",":
+            yield value[start:index]
+            start = index + 1
+    if not quoted and not in_uri:
+        yield value[start:]
 
-    The URI may not hold a ``<``. A URI never does, and allowing one made
-    every ``<`` in a header without a ``>`` rescan the rest of it.
+
+def parse_link_header(value: str) -> list:
+    """Read URI, relation and type parameters without splitting quoted text.
+
+    Scan the field once for link boundaries before parsing parameters. The
+    URI pattern excludes nested ``<`` so malformed headers stay linear.
     """
     out = []
-    for match in re.finditer(r"<([^<>]*)>([^,<]*)", value or ""):
+    parameter = r';\s*([^\s=;,]+)\s*=\s*("((?:[^"\\]|\\.)*)"|[^;,\s"]+)'
+    for part in _link_header_values(value or ""):
+        match = re.fullmatch(r"\s*<([^<>]*)>(.*)", part, re.DOTALL)
+        if not match:
+            continue
         params = {}
-        for p in re.finditer(r';\s*([a-zA-Z*-]+)\s*=\s*("([^"]*)"|[^;,\s]+)', match.group(2)):
-            params[p.group(1).lower()] = p.group(3) if p.group(3) is not None else p.group(2)
+        for p in re.finditer(parameter, match.group(2)):
+            text = re.sub(r"\\(.)", r"\1", p.group(3)) if p.group(3) is not None else p.group(2)
+            params.setdefault(p.group(1).lower(), text)
         out.append({"uri": match.group(1),
                     "rel": [r.lower() for r in params.get("rel", "").split()],
                     "type": params.get("type", "").lower()})
