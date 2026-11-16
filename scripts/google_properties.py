@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit
 
+import idna
+
 
 def normalize_site_domain(value: str) -> str:
     """Return the exact hostname represented by a host or URL."""
@@ -11,7 +13,13 @@ def normalize_site_domain(value: str) -> str:
     parsed = urlsplit(text if "://" in text else f"//{text}")
     if not parsed.hostname:
         raise ValueError(f"Invalid site domain or URL: {value!r}")
-    return parsed.hostname.rstrip(".").lower()
+    host = parsed.hostname.rstrip(".").lower()
+    if ":" in host:  # IPv6 literals are not IDNA domain names.
+        return host
+    try:
+        return idna.encode(host, uts46=True).decode("ascii").removesuffix(".")
+    except idna.IDNAError as exc:
+        raise ValueError(f"Invalid site domain or URL: {value!r}") from exc
 
 
 def _property_domain(value: str) -> str:

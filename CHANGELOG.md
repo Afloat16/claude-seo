@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Google property routing matches equivalent Unicode and Punycode site names,
+  including legacy defaults and subdomain coverage. Ambiguous equivalent
+  mapping keys are rejected, and distinct IDNA 2008 names remain separate.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security
