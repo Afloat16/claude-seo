@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Report generation exits with failure status when a requested export fails,
+  while still printing metadata and preserving successful partial outputs.
+  `--format all` now reports a missing workbook renderer alongside any PDF
+  error instead of silently omitting the requested workbook.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

@@ -2685,6 +2685,9 @@ def generate_report(report_type, data, domain, output_dir, output_format="pdf"):
             xlsx_path = generate_xlsx(data, domain, report_type, output_dir)
             if xlsx_path:
                 result["files"].append(xlsx_path)
+            else:
+                xlsx_error = "openpyxl is required for XLSX generation. Install: pip install openpyxl"
+                result["error"] = f'{result["error"]}; {xlsx_error}' if result["error"] else xlsx_error
         except Exception as e:
             xlsx_error = f"XLSX generation failed: {e}"
             result["error"] = f'{result["error"]}; {xlsx_error}' if result["error"] else xlsx_error
@@ -3070,7 +3073,8 @@ def main():
     else:
         for f in result.get("files", []):
             print(f"Generated: {f}")
+    return 1 if result.get("error") else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
