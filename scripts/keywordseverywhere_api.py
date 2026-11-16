@@ -110,10 +110,22 @@ def get_rank(domains: list, api_key: str) -> dict:
         response = _post(KWE_BASE, headers=headers, json=payload, timeout=30)
 
         if response.status_code == 401 or response.status_code == 403:
+            message = "Invalid Keywords Everywhere API key. Check your key in the Keywords Everywhere dashboard."
+            if response.status_code == 403:
+                try:
+                    auth_body = response.json()
+                except (ValueError, RecursionError):
+                    auth_body = None
+                auth_error = auth_body.get("error") if isinstance(auth_body, dict) else None
+                if isinstance(auth_error, dict) and auth_error.get("type") == "address_error":
+                    message = (
+                        "This IP address is not allowed by the Open Page Rank account. "
+                        "Check the allowed IPv4 address on the account's Open Page Rank tab."
+                    )
             return {
                 "status": "error",
                 "data": None,
-                "error": "Invalid Keywords Everywhere API key. Check your key in the Keywords Everywhere dashboard.",
+                "error": message,
                 "metadata": {"source": "keywordseverywhere"},
             }
 
@@ -158,14 +170,17 @@ def get_rank(domains: list, api_key: str) -> dict:
                 "error": f"HTTP {response.status_code}: response was not JSON",
                 "metadata": {"source": "keywordseverywhere"},
             }
-        if not isinstance(body, dict) or not isinstance(body.get("results", []), list):
+        if (not isinstance(body, dict)
+                or not isinstance(body.get("results"), list)
+                or any(not isinstance(item, dict) or not isinstance(item.get("domain"), str)
+                       for item in body["results"])):
             return {
                 "status": "error",
                 "data": None,
-                "error": "Unexpected response shape from the API (no results list).",
+                "error": "Unexpected response shape from the API (expected a results list with domain names).",
                 "metadata": {"source": "keywordseverywhere"},
             }
-        results = [item for item in body.get("results") or [] if isinstance(item, dict)]
+        results = body["results"]
         ranks = [
             {
                 "domain": item.get("domain"),
@@ -270,6 +285,9 @@ def main():
             print(f"Error: {result['error']}", file=sys.stderr)
         else:
             print("No data returned.", file=sys.stderr)
+
+    if result["status"] != "success":
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Keywords Everywhere:** missing or malformed bulk results are errors instead
+  of successful empty or partial rank reports. The CLI exits nonzero after an
+  unsuccessful lookup, including authentication failures and rate limits.
+  Account IP-address restrictions now point to the allowed-address setting
+  instead of incorrectly reporting a bad API key.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security
