@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Agent-UX structural counts inspect HTML elements instead of markup-looking
+  text. Script strings, comments, custom-element names and `data-onclick`
+  attributes no longer distort the score, and unquoted click handlers are counted.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

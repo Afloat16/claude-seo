@@ -41,7 +41,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 from typing import Optional
 
@@ -52,14 +51,7 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 from render_page import render_page  # noqa: E402
 
-_ONCLICK_DIV_RE = re.compile(
-    r"<div\b[^>]*\bonclick\s*=\s*[\"'][^\"']+[\"']", re.IGNORECASE
-)
-_BUTTON_RE = re.compile(r"<button\b", re.IGNORECASE)
-_ANCHOR_HREF_RE = re.compile(r"<a\b[^>]*\bhref\s*=", re.IGNORECASE)
-_SEMANTIC_LANDMARK_RE = re.compile(
-    r"<(?:nav|main|article|section|aside|header|footer)\b", re.IGNORECASE
-)
+_SEMANTIC_LANDMARK_TAGS = ("nav", "main", "article", "section", "aside", "header", "footer")
 _MEANINGFUL_EMPTY_TEXT_TAGS = {
     "a",
     "audio",
@@ -86,18 +78,18 @@ def _walk_tree(node: Optional[dict]):
 
 def analyze_html(html: str) -> dict:
     """Walk raw rendered HTML for the agent-UX checklist."""
+    soup = BeautifulSoup(html, "html.parser")
     findings: dict = {
-        "real_buttons": len(_BUTTON_RE.findall(html)),
-        "real_anchors": len(_ANCHOR_HREF_RE.findall(html)),
-        "div_onclick_widgets": len(_ONCLICK_DIV_RE.findall(html)),
-        "semantic_landmarks": len(_SEMANTIC_LANDMARK_RE.findall(html)),
+        "real_buttons": len(soup.find_all("button")),
+        "real_anchors": len(soup.find_all("a", href=True)),
+        "div_onclick_widgets": sum(bool(div.get("onclick")) for div in soup.find_all("div")),
+        "semantic_landmarks": len(soup.find_all(_SEMANTIC_LANDMARK_TAGS)),
         "inputs_without_aria": 0,
         "inputs_without_label": 0,
     }
 
     # Inspect actual controls, including those without an id. HTML labels,
     # ARIA names, and button values can all provide an accessible name.
-    soup = BeautifulSoup(html, "html.parser")
     by_id = {node["id"]: node for node in soup.find_all(id=True)}
     label_targets = {
         label["for"] for label in soup.find_all("label", attrs={"for": True})
