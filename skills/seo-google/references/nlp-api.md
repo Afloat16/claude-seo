@@ -19,6 +19,23 @@ call takes the code as `document.language`, the v2 call as
 `document.languageCode`. Language support differs per feature, so an
 unsupported language returns an API error for that feature.
 
+## Analysis coverage
+
+`nlp_analyze.py` keeps a local sampling cap of 100,000 characters per request.
+The JSON `text_length` is the full input length, `analysis_text_length` is the
+length of the request document, and `text_truncated` says whether only a
+prefix was selected. URL analysis also reports `extracted_text_length`.
+
+When `text_truncated` is true, describe the entity, sentiment and category
+findings as applying to the sampled prefix. Do not infer that an entity absent
+from the response is absent from the entire page; it may occur in the omitted
+tail. Select the relevant passage for a further analysis when needed.
+
+This sampling cap is distinct from the API's
+[content quota](https://docs.cloud.google.com/natural-language/quotas), which
+is measured in bytes. The API also has token and entity-mention limits, so
+request length alone does not guarantee that every token was processed.
+
 ## Features
 
 | Feature | What It Does | SEO Use |

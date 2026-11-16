@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- NLP reports expose the request document's character count and whether the
+  input was truncated, with a CLI warning for sampled input. The existing
+  100,000-character request cap and input-length field remain unchanged.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

@@ -59,6 +59,9 @@ FEATURES = {
 
 # Loose BCP-47 shape (en, pt-BR, zh-Hant); the API decides what it supports.
 LANGUAGE_CODE = re.compile(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*")
+# Local sampling cap, not the API's 1,000,000-byte content quota.
+# Preserve the existing request size and expose sampling in every report.
+MAX_ANALYSIS_CHARACTERS = 100_000
 
 
 def language_code(value: str) -> str:
@@ -81,7 +84,7 @@ def analyze_text(
     Analyze text using Google Cloud Natural Language API.
 
     Args:
-        text: Text content to analyze (max 1M characters).
+        text: Input text; analysis uses its first 100,000 characters.
         features: List of features: entities, sentiment, classify, moderate.
         api_key: Google API key.
         language: BCP-47 language code. Omitted by default so the API
@@ -89,9 +92,14 @@ def analyze_text(
 
     Returns:
         Dictionary with entities, sentiment, categories, and moderation results.
+        text_length is the input length; analysis_text_length is the request
+        document length, and text_truncated identifies a sampled document.
     """
+    analysis_text = text[:MAX_ANALYSIS_CHARACTERS]
     result = {
         "text_length": len(text),
+        "analysis_text_length": len(analysis_text),
+        "text_truncated": len(analysis_text) < len(text),
         "language": language,
         "entities": [],
         "sentiment": None,
@@ -110,7 +118,7 @@ def analyze_text(
 
     document = {
         "type": "PLAIN_TEXT",
-        "content": text[:100000],  # API limit
+        "content": analysis_text,
     }
     v1_document = dict(document)
     # Without a language field the API auto-detects. v1 names the field
@@ -362,6 +370,13 @@ def main():
         if not args.json:
             sys.exit(1)
 
+    if result.get("text_truncated"):
+        print(
+            f"Warning: NLP input is truncated to the first {result['analysis_text_length']:,} "
+            f"of {result['text_length']:,} characters.",
+            file=sys.stderr,
+        )
+
     if args.json:
         print(json.dumps(result, indent=2))
     else:
@@ -369,7 +384,8 @@ def main():
             print(f"=== NLP Analysis: {result['source_url']} ===")
             print(f"Text extracted: {result.get('extracted_text_length', 0):,} chars")
         else:
-            print(f"=== NLP Analysis ({result.get('text_length', 0):,} chars) ===")
+            length = result.get("analysis_text_length", result.get("text_length", 0))
+            print(f"=== NLP Analysis ({length:,} chars) ===")
 
         sent = result.get("sentiment")
         if sent:

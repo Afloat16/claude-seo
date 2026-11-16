@@ -252,6 +252,7 @@ Full NLP analysis: entities, sentiment, content classification.
 **Script:** `"${CLAUDE_PLUGIN_ROOT}/scripts/claude-seo" run nlp_analyze.py --url <url> --json` or `--text "..."`
 **Reference:** `references/nlp-api.md`
 **Language:** auto-detected by default; add `--language <code>` (BCP-47, e.g. `pt-BR`) only to override the detection. The JSON `language` field reports the code used.
+**Coverage:** check `text_truncated` and `analysis_text_length`. For truncated input, limit findings to the sampled prefix; an entity missing from its response may still occur later on the page. See the reference for the request and provider limits.
 **Free tier:** 5,000 units/month. Requires billing enabled on GCP project.
 
 ### `/seo google entities <url-or-text>`
