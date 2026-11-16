@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- DataForSEO budget checks reject nonpositive call counts and non-finite or
+  negative amounts before approving calls or writing costs/settings. Existing
+  malformed numeric ledger and configuration values now fail closed with a
+  structured error, preventing NaN or negative spend from bypassing limits.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

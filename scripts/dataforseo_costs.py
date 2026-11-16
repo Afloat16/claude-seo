@@ -27,6 +27,7 @@ Security fixes: config path corrected to ~/.config/claude-seo/
 
 import argparse
 import json
+import math
 import os
 import sys
 import tempfile
@@ -142,9 +143,13 @@ def _load_config():
     if CONFIG_FILE.exists():
         with open(CONFIG_FILE) as f:
             cfg = json.load(f)
+        if not isinstance(cfg, dict):
+            raise LedgerError("Budget configuration must be a JSON object.")
         # Merge defaults for missing keys
         for k, v in DEFAULT_CONFIG.items():
             cfg.setdefault(k, v)
+        for field in ("threshold", "daily_limit"):
+            _budget_amount(cfg[field], f"Configured {field}")
         return cfg
     return dict(DEFAULT_CONFIG)
 
@@ -158,6 +163,24 @@ def _save_config(cfg):
 
 class LedgerError(RuntimeError):
     """The ledger could not be read or written safely."""
+
+
+def _budget_amount(value, label):
+    """Refuse amounts that make spend comparisons invalid or reduce spend."""
+    try:
+        valid = (isinstance(value, (int, float)) and not isinstance(value, bool)
+                 and math.isfinite(value) and value >= 0)
+    except OverflowError:
+        valid = False
+    if not valid:
+        raise LedgerError(f"{label} must be a finite, non-negative number.")
+    return value
+
+
+def _call_count(value):
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise LedgerError("Call count must be a positive integer.")
+    return value
 
 
 def _lock(handle, exclusive):
@@ -206,6 +229,10 @@ def _read_ledger():
             f"Spend ledger {LEDGER_FILE} has an unexpected shape (no 'entries' "
             "list). Inspect the file, then repair or remove it."
         )
+    for index, entry in enumerate(ledger["entries"]):
+        if not isinstance(entry, dict):
+            raise LedgerError(f"Spend ledger entry {index} must be an object.")
+        _budget_amount(entry.get("cost"), f"Spend ledger entry {index} cost")
     return ledger
 
 
@@ -276,7 +303,7 @@ def _today_spend(ledger):
 def cmd_estimate(args):
     """Estimate cost for an API call."""
     endpoint = args.endpoint
-    count = args.count or 1
+    count = _call_count(args.count)
     unit_cost = COST_TABLE.get(endpoint)
 
     if unit_cost is None:
@@ -318,7 +345,7 @@ def cmd_check(args):
     cfg = _load_config()
     ledger = _ledger_snapshot()
     endpoint = args.endpoint
-    count = args.count or 1
+    count = _call_count(args.count)
     unit_cost = COST_TABLE.get(endpoint)
     if unit_cost is None:
         result = {
@@ -395,7 +422,7 @@ def cmd_log(args):
     entry = {
         "timestamp": datetime.now().isoformat(),
         "endpoint": args.endpoint,
-        "cost": args.cost,
+        "cost": _budget_amount(args.cost, "Cost"),
     }
     if args.note:
         entry["note"] = args.note
@@ -485,10 +512,10 @@ def cmd_config(args):
         cfg["mode"] = args.mode
         changed = True
     if args.threshold is not None:
-        cfg["threshold"] = args.threshold
+        cfg["threshold"] = _budget_amount(args.threshold, "Threshold")
         changed = True
     if args.daily_limit is not None:
-        cfg["daily_limit"] = args.daily_limit
+        cfg["daily_limit"] = _budget_amount(args.daily_limit, "Daily limit")
         changed = True
 
     if changed:
