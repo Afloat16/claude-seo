@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Keywords Everywhere:** retain and print the API's host-level PageRank results
+  separately from root-domain metrics. Hosted sites with no domain-level record
+  keep their available host score, and ordinary domain-only output is unchanged.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

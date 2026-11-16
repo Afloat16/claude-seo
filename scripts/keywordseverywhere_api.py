@@ -83,7 +83,8 @@ def get_rank(domains: list, api_key: str) -> dict:
         api_key: Keywords Everywhere API key (opr_live_...).
 
     Returns:
-        Standard response dict with rank data per domain.
+        Standard response dict with rank data per domain. Queried subdomain
+        scores stay under each result's hosts list, separate from root metrics.
     """
     raw_key = api_key or ""
     api_key = raw_key.strip()
@@ -178,6 +179,25 @@ def get_rank(domains: list, api_key: str) -> dict:
             }
             for item in results
         ]
+        for item, rank in zip(results, ranks):
+            hosts = item.get("hosts")
+            if hosts is not None:
+                if (not isinstance(hosts, list)
+                        or any(not isinstance(host, dict) or not isinstance(host.get("host"), str)
+                               for host in hosts)):
+                    return {
+                        "status": "error", "data": None,
+                        "error": "Unexpected host results from the Open Page Rank API.",
+                        "metadata": {"source": "keywordseverywhere"},
+                    }
+                rank["hosts"] = [{
+                    "host": host["host"],
+                    "found": host.get("found"),
+                    "open_page_rank": host.get("open_page_rank"),
+                    "page_rank_decimal": host.get("open_page_rank"),
+                    "rank": host.get("rank"),
+                    "referring_hosts": host.get("referring_hosts"),
+                } for host in hosts]
 
         return {
             "status": "success",
@@ -266,6 +286,8 @@ def main():
         if result["status"] == "success" and result["data"]:
             for d in result["data"]["domains"]:
                 print(f"  {d.get('domain', '?'):40s} rank={d.get('page_rank_decimal', '?')}/10 ({d.get('rank', '?')})")
+                for host in d.get("hosts", []):
+                    print(f"    host {host['host']:35s} rank={host.get('page_rank_decimal')}/10 ({host.get('rank')})")
         elif result["error"]:
             print(f"Error: {result['error']}", file=sys.stderr)
         else:
