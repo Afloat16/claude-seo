@@ -61,6 +61,7 @@ import argparse
 import json
 import re
 import sys
+from html.parser import HTMLParser
 from pathlib import Path
 
 # Claim patterns. Each is (regex, label). Order matters: first match
@@ -100,9 +101,8 @@ _CLAIM_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
 # common English words that produce too many false positives ("see growth",
 # "per page"). We require the attribution form ("Source:", "Per Gartner",
 # "according to a Stanford study") or an explicit hyperlink / footnote.
+_MARKDOWN_CITATION = re.compile(r"\[[^\]]+\]\(https?://[^)]+\)")
 _CITATION_PATTERNS: tuple[re.Pattern, ...] = (
-    re.compile(r"\[[^\]]+\]\(https?://[^)]+\)"),  # markdown link
-    re.compile(r"<a\s+[^>]*href=[\"']https?://[^\"']+[\"']"),  # HTML link
     re.compile(r"\[\^?\d+\]"),  # footnote-style [1] or [^1]
     re.compile(r"@type\s*:\s*[\"']Citation[\"']"),  # schema.org Citation
     re.compile(
@@ -117,12 +117,36 @@ _CITATION_PATTERNS: tuple[re.Pattern, ...] = (
 )
 
 
+class _HTMLCitationParser(HTMLParser):
+    """Find an HTTP(S) anchor without treating other attributes as href."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.citation: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a" or self.citation is not None:
+            return
+        for name, value in attrs:
+            if name == "href":
+                if value and re.match(r"https?://.", value.strip(" \t\n\f\r"), re.IGNORECASE):
+                    self.citation = self.get_starttag_text()
+                break
+
+
 def _has_citation_near(text: str, position: int, window: int = 200) -> str | None:
     """Return the matched citation text if any citation pattern hits within
     ``window`` chars of ``position``, otherwise None."""
     start = max(0, position - window)
     end = min(len(text), position + window)
     snippet = text[start:end]
+    markdown = _MARKDOWN_CITATION.search(snippet)
+    if markdown:
+        return markdown.group(0)[:80]
+    html = _HTMLCitationParser()
+    html.feed(snippet)
+    if html.citation:
+        return html.citation[:80]
     for pattern in _CITATION_PATTERNS:
         m = pattern.search(snippet)
         if m:

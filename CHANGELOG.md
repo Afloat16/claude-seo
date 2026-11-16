@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Content verification:** parse HTML citation anchors so valid href syntax is
+  recognized and data-href attributes, comments and script examples do not mark
+  otherwise uncited claims as cited.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security
