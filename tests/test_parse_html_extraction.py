@@ -173,7 +173,7 @@ def test_resolution_uses_the_document_base_and_stays_relative_without_one():
         ('<img src="a.png" role="none">', True),
         ('<img src="a.png" ROLE="Presentation" alt="  ">', True),
         ('<span aria-hidden="TRUE"><i><img src="a.png" alt=""></i></span>', True),
-        ('<div role="presentation"><img src="a.png"></div>', True),
+        ('<div role="presentation"><img src="a.png"></div>', False),
         # Alt text means the image carries meaning, whatever the markup says.
         ('<img src="a.png" alt="Chart of sales" aria-hidden="true">', False),
         # An empty or missing alt alone is still worth a look.

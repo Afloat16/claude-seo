@@ -517,12 +517,12 @@ def _document_base(soup, page_url: str) -> str:
 
 
 def _is_decorative(img) -> bool:
-    """True when the image or an ancestor is hidden from assistive technology or presentational."""
+    """True for a presentational image or one hidden by its own or inherited aria-hidden."""
+    if _attr(img, "role").lower() in ("presentation", "none"):
+        return True
     node = img
     while node is not None and getattr(node, "attrs", None) is not None:
         if _attr(node, "aria-hidden").lower() == "true":
-            return True
-        if _attr(node, "role").lower() in ("presentation", "none"):
             return True
         node = node.parent
     return False

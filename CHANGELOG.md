@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Image audits no longer treat a presentational container as hiding the images
+  inside it. Missing `alt` text in layout tables, lists and other containers is
+  reported; images that are themselves presentational or inherit `aria-hidden`
+  retain their existing treatment.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

@@ -18,10 +18,10 @@ Output keys (JSON):
                             resolved_src       real URL when src is a lazy
                                                placeholder, else null
                             srcset_candidates  [{url, descriptor}], up to 10
-                            decorative         true when alt is empty and the
-                                               image or an ancestor is
-                                               aria-hidden or has role
-                                               presentation / none
+                            decorative         true when alt is empty and
+                                               aria-hidden applies to the
+                                               image or an ancestor, or the
+                                               image has role presentation / none
                           and, with --probe-images, served_format,
                           served_bytes, negotiated, probe_error, probed_src
     links                 {internal, external}. Hosts that differ only by a
@@ -480,17 +480,17 @@ def _image_sources(img, base_url: Optional[str], src: str) -> tuple:
 def _is_decorative_image(img) -> bool:
     """True when the image has no alt text and is marked as decoration.
 
-    The mark is ``aria-hidden="true"`` or ``role="presentation"`` /
-    ``role="none"`` on the image or on any ancestor. Such an image is skipped
-    by assistive technology, so a missing alt on it is not a finding.
+    ``aria-hidden="true"`` applies on the image or any ancestor. A
+    ``presentation`` / ``none`` role applies only on the image: removing a
+    container's semantics does not hide the images inside it.
     """
     if _attr_text(img, "alt").strip():
         return False
+    if {"presentation", "none"} & set(_attr_text(img, "role").lower().split()):
+        return True
     node = img
     while node is not None and getattr(node, "attrs", None) is not None:
         if _attr_text(node, "aria-hidden").strip().lower() == "true":
-            return True
-        if {"presentation", "none"} & set(_attr_text(node, "role").lower().split()):
             return True
         node = node.parent
     return False
