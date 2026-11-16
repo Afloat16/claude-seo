@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **PageSpeed:** combined home-page audits query URL-level CrUX data first. Origin
+  aggregates are used only as the labeled fallback when page data is unavailable.
+
 ## [2.6.2] - 2026-11-15
 
 ### Security

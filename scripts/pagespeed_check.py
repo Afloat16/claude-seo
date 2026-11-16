@@ -328,6 +328,8 @@ def query_crux(
     url_or_origin: str,
     api_key: str,
     form_factor: Optional[str] = None,
+    *,
+    origin_level: Optional[bool] = None,
 ) -> dict:
     """
     Query the CrUX API for field data (28-day rolling average).
@@ -336,6 +338,7 @@ def query_crux(
         url_or_origin: Full URL or origin (e.g., https://example.com).
         api_key: Google API key.
         form_factor: DESKTOP, PHONE, or TABLET. None for all form factors.
+        origin_level: Explicit scope; None keeps URL/origin inference for callers.
 
     Returns:
         Dictionary with p75 metrics, distributions, collection period, and rating.
@@ -354,8 +357,11 @@ def query_crux(
         return result
 
     parsed = urlparse(url_or_origin)
-    # Determine if this is a URL or an origin
-    is_origin = parsed.path in ("", "/") and not parsed.query
+    # A home page is also a URL. Page audits must be able to select that scope
+    # explicitly instead of silently getting data for every page on the origin.
+    is_origin = origin_level
+    if is_origin is None:
+        is_origin = parsed.path in ("", "/") and not parsed.query
 
     body = {}
     if is_origin:
@@ -485,13 +491,13 @@ def combined_check(
 
     # CrUX (separate call for accurate field data)
     if api_key:
-        crux_result = query_crux(url, api_key)
+        crux_result = query_crux(url, api_key, origin_level=False)
         result["crux"] = crux_result
         # Also try origin-level if URL-level has no data
         if crux_result.get("error") and "insufficient" in crux_result.get("error", ""):
             parsed = urlparse(url)
             origin = f"{parsed.scheme}://{parsed.netloc}"
-            origin_result = query_crux(origin, api_key)
+            origin_result = query_crux(origin, api_key, origin_level=True)
             if not origin_result.get("error"):
                 result["crux"] = origin_result
                 result["crux"]["note"] = "URL-level data unavailable; showing origin-level data"
