@@ -1,0 +1,63 @@
+name: SEO contribution live validation
+
+on:
+  push:
+    branches: ["validation/20261126-seo-live-smoke"]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Live validation (${{ matrix.case }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: canonical
+            sha: 5de7ebfcf99790bdea16e2c08df7ed4a4ca3a1f8
+            tests: tests/test_parse_canonical_targets.py
+          - case: images
+            sha: 2659ffb2d736c616f00656338983e57e50d771f4
+            tests: tests/test_image_format_probe.py
+          - case: preload
+            sha: 4b590029f631add51093a78ff082598349ab509f
+            tests: tests/test_preload_unload_signals.py
+    steps:
+      - name: Check out validation driver
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check out exact independent contribution
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ matrix.sha }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install declared HTTP and HTML dependencies
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          lines = Path("candidate/requirements.txt").read_text().splitlines()
+          needed = [line for line in lines if re.match(r"^(beautifulsoup4|requests|idna|lxml|urllib3)\b", line.strip())]
+          assert len(needed) >= 3, needed
+          Path("live-requirements.txt").write_text("\n".join(needed) + "\n")
+          PY
+          python -m pip install -r live-requirements.txt pytest
+      - name: Run regression coverage on the exact head
+        working-directory: candidate
+        env:
+          REGRESSION_TEST: ${{ matrix.tests }}
+        run: python -m pytest -q "$REGRESSION_TEST"
+      - name: Exercise real public URLs through production fetchers
+        env:
+          SMOKE_CASE: ${{ matrix.case }}
+          SMOKE_SHA: ${{ matrix.sha }}
+        run: python .github/contribution-smoke/live.py --repo-root candidate --case "$SMOKE_CASE" --expected-sha "$SMOKE_SHA"
