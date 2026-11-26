@@ -1,0 +1,49 @@
+name: Validate OpenMVG report statistics on Windows
+run-name: OpenMVG Windows report validation at f7335d4
+on:
+  push:
+    branches: [validation/20261126-openmvg-report-windows]
+permissions:
+  contents: read
+jobs:
+  windows-report-statistics:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Afloat16/openMVG
+          ref: f7335d41fc1cadf914855f5ffd4641d0ca95b819
+          path: candidate
+          persist-credentials: false
+      - name: Build a standalone C++11 compatibility target
+        run: |
+          mkdir harness
+          cat > harness/CMakeLists.txt <<'CMAKE'
+          cmake_minimum_required(VERSION 3.15)
+          project(OpenMVGReportValidation LANGUAGES CXX)
+          set(CMAKE_CXX_STANDARD 11)
+          set(CMAKE_CXX_STANDARD_REQUIRED ON)
+          get_filename_component(SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../candidate/src" ABSOLUTE)
+          set(COMMON
+            "${SOURCE_ROOT}/openMVG/sfm/sfm_report.cpp"
+            "${SOURCE_ROOT}/third_party/stlplus3/filesystemSimplified/file_system.cpp"
+            "${SOURCE_ROOT}/third_party/stlplus3/filesystemSimplified/wildcard.cpp"
+            "${SOURCE_ROOT}/third_party/stlplus3/filesystemSimplified/portability_fixes.cpp")
+          file(GLOB TEST_FRAMEWORK "${SOURCE_ROOT}/third_party/CppUnitLite/*.cpp")
+          add_executable(report_statistics "${SOURCE_ROOT}/openMVG/sfm/sfm_report_statistics_test.cpp" ${COMMON} ${TEST_FRAMEWORK})
+          target_include_directories(report_statistics PRIVATE "${SOURCE_ROOT}" "${SOURCE_ROOT}/third_party/eigen")
+          if(MSVC)
+            # Match the PUBLIC definition from openMVG_numeric.
+            target_compile_definitions(report_statistics PRIVATE _USE_MATH_DEFINES)
+          endif()
+          enable_testing()
+          add_test(NAME report_statistics COMMAND report_statistics)
+          CMAKE
+          cmake -S harness -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release --parallel 2
+      - name: Verify exact pair statistics and output stability
+        run: ctest --test-dir build --build-config Release --output-on-failure
