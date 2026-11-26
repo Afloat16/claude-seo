@@ -1,0 +1,31 @@
+name: Read locked metric-learning contributor workflow
+
+on:
+  push:
+    branches: [validation/20261126-metric-workflow]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guidance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the immutable upstream source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: KevinMusgrave/pytorch-metric-learning
+          ref: 70e58351fedc18eac2c0677c23298765de763718
+          persist-credentials: false
+      - name: Verify source
+        run: |
+          test "$(git rev-parse HEAD)" = 70e58351fedc18eac2c0677c23298765de763718
+          git status --short
+      - name: Set up the repository's locked policy tool
+        run: ./code-polishyw setup
+      - name: Read version-matched contributor workflow
+        run: ./code-polishyw docs read agent-workflows
+      - name: Read scoped design-context command help
+        run: ./code-polishyw design-context --help
