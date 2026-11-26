@@ -1,0 +1,81 @@
+name: Validate billion Responses summary image scope
+run-name: Responses summary image validation at dfac9bb
+
+on:
+  push:
+    branches: [validation/20261126-billion-summary-images]
+
+permissions:
+  contents: read
+
+jobs:
+  static-gates:
+    name: static-gates (${{ matrix.os }}, ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: 24 }
+          - { os: windows-latest, node: 22 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Afloat16/billion-context
+          ref: dfac9bbbb2598a0e1dbbbb1b7a025133eb2d9549
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm install --ignore-scripts --no-fund --no-audit
+      - run: npm run typecheck
+      - run: npm --prefix kernel test
+      - run: npm --prefix pi-subagents test
+      - run: npm run build
+      - run: node scripts/check-dist-thin-install.mjs
+      - run: node scripts/check-unused-exports.mjs
+      - run: node scripts/check-test-import-graph.mjs
+
+  image-wire-regressions:
+    name: real Responses summary image and wire regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Afloat16/billion-context
+          ref: dfac9bbbb2598a0e1dbbbb1b7a025133eb2d9549
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact image-lane dependencies
+        id: install
+        run: npm ci
+      - name: Typecheck
+        id: typecheck
+        run: npm run typecheck
+      - name: Real codec, fold, HTTP and related image regressions
+        run: >-
+          node --import ./tests/preload-storage-baseline.mjs
+          --import ./tests/preload-test-env.mjs
+          --import ./tests/preload-zone-slot.mjs
+          --import tsx --test --test-concurrency 4
+          tests/responses-summary-image-scope.test.ts
+          tests/fix-781-summary-images.test.ts
+          tests/fold-image-note-lookup.test.ts
+          tests/image-restore.test.ts
+          tests/responses-tool-images.test.ts
+          tests/google-tool-image-accounting.test.ts
+      - name: Full permanent wire contract
+        run: >-
+          node --import ./tests/preload-storage-baseline.mjs
+          --import ./tests/preload-test-env.mjs
+          --import ./tests/preload-zone-slot.mjs
+          --import tsx --test tests/wire-contract.test.ts
+      - name: Hermetic real-image billing E2E
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.typecheck.outcome == 'success' }}
+        run: npm run test:e2e:image
