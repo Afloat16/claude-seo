@@ -56,7 +56,7 @@ releases are documented in [../CHANGELOG.md](../CHANGELOG.md).
 |---|---|
 | `python3 scripts/preload_check.py` | Speculation Rules + bfcache + prerender + LCP preload audit |
 | `python3 scripts/indexnow_submit.py` | Submit up to 10k URLs to IndexNow (Bing/Yandex/Seznam/Naver) |
-| `python3 scripts/lcp_subparts.py` | LCP decomposition via CrUX (TTFB, load delay, load duration, render delay) |
+| `python3 scripts/lcp_subparts.py` | Independent CrUX image-LCP p75 diagnostics (TTFB, load delay, load duration, render delay) |
 | `python3 scripts/unlighthouse_run.py` | Multi-page Lighthouse via the MIT Unlighthouse CLI |
 
 ### Schema completeness (Phase D)

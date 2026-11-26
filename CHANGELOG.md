@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **CrUX image-LCP subparts are reported as independent p75 diagnostics.**
+  `lcp_subparts.py` no longer divides them by overall LCP to claim contribution
+  percentages or apply a 40% remediation threshold: the percentiles are aggregated
+  independently and cover different page-load populations. In JSON, replace reads
+  of `dominant_subparts` and its `share` field with `ranked_subparts` entries
+  (`metric`, `p75_ms`) and the new `interpretation` metadata. This is an output
+  field change; `p75_lcp_ms` and `subparts_p75_ms` retain their measurement values.
+  Image-subpart diagnostics remain available when overall LCP is missing, and
+  recommendations are conditional checks to confirm in representative traces.
+
 ## [2.6.3] - 2026-11-26
 
 Fixes release: 36 community fixes, three dependency updates and maintainer follow-ups. No new

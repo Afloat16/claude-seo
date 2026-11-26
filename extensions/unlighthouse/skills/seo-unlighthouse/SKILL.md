@@ -52,7 +52,7 @@ from the overall `--timeout` subprocess guard (default 600s).
 ## Cross-skill delegation
 
 - For single-URL field data (CrUX), use `seo-google psi` / `seo-google crux`.
-- For LCP subpart decomposition on slow pages, use the
+- For independent image-LCP subpart p75 diagnostics on slow pages, use the
   `"${CLAUDE_PLUGIN_ROOT}/scripts/claude-seo" run lcp_subparts.py` workflow (Phase C).
 
 ## Security

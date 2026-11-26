@@ -133,7 +133,7 @@ claude-seo/
     url_safety.py                # Canonical URL/SSRF safety module (validate, DNS-pin, safe fetch)
     browser_proxy.py             # Local egress guard for the headless browser: validates and pins every Chromium connection
     render_page.py               # Shared headless renderer (SPA-aware, Playwright)
-    lcp_subparts.py              # LCP subparts breakdown via CrUX API
+    lcp_subparts.py              # Independent image-LCP p75 diagnostics via CrUX API
     preload_check.py             # Speculation Rules / bfcache / prerender / preload detector
     agent_ux_check.py            # Agent-friendly page auditor
     agentic_check.py             # Agent-readiness HTTP auditor (robots, llms.txt, Markdown, ARD, well-known, WebMCP)

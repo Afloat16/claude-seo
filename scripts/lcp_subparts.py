@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LCP subparts breakdown via CrUX API.
+Independent LCP image-subpart percentiles via CrUX API.
 
 Since January 2025 CrUX has exposed the four LCP sub-metrics:
   - largest_contentful_paint_image_time_to_first_byte
@@ -8,11 +8,9 @@ Since January 2025 CrUX has exposed the four LCP sub-metrics:
   - largest_contentful_paint_image_resource_load_duration
   - largest_contentful_paint_image_element_render_delay
 
-These let you decompose a slow LCP into network, scheduling, fetch,
-and render phases: turning "your LCP is 4.2s" into "your TTFB is 1.1s
-and your render delay is 2.4s, fix server response and the image
-preload sequence". Per the gap analysis, this is the single most
-actionable upgrade to claude-seo's CWV reporting.
+Each p75 aggregates a separate distribution of image LCP on full page
+loads. These values can prioritize investigation, but neither their sum
+nor their ratio to overall LCP gives a decomposition of overall p75 LCP.
 
 Usage::
 
@@ -85,6 +83,78 @@ def _percentile(metric: dict) -> float | None:
         return None
 
 
+def _summarise_record(raw: dict, url: str, form_factor: str) -> dict:
+    """Describe observed p75s without treating them as additive timings."""
+    metrics = raw.get("record", {}).get("metrics", {})
+    breakdown: dict[str, float | None] = {}
+    for key in _LCP_SUBPART_METRICS:
+        m = metrics.get(key)
+        breakdown[key] = _percentile(m) if m else None
+
+    overall_lcp = _percentile(metrics.get("largest_contentful_paint", {})) \
+        if metrics.get("largest_contentful_paint") else None
+
+    # CrUX computes each percentile independently, and image subparts
+    # exclude text/video LCP, back-forward navigations and prerenders.
+    # https://developer.chrome.com/docs/crux/methodology/metrics
+    ranked = sorted(
+        ({"metric": key, "p75_ms": val} for key, val in breakdown.items() if val is not None),
+        key=lambda part: part["p75_ms"],
+        reverse=True,
+    )
+
+    recommendations: list[str] = []
+    for d in ranked:
+        if d["p75_ms"] <= 0:
+            continue
+        if d["metric"].endswith("time_to_first_byte"):
+            recommendations.append(
+                "Time to first byte: if a representative image-LCP trace confirms "
+                "a slow response, check redirects, network latency, origin "
+                "response time and CDN cache hits."
+            )
+        elif d["metric"].endswith("resource_load_delay"):
+            recommendations.append(
+                "Resource load delay: if a representative image-LCP trace confirms "
+                "late discovery, check when the image becomes discoverable and "
+                "whether preload or fetchpriority would help."
+            )
+        elif d["metric"].endswith("resource_load_duration"):
+            recommendations.append(
+                "Resource load duration: if a representative image-LCP trace confirms "
+                "a slow download, check image byte size, responsive sizes, "
+                "image formats and network throughput."
+            )
+        elif d["metric"].endswith("element_render_delay"):
+            recommendations.append(
+                "Element render delay: if a representative image-LCP trace confirms "
+                "a delay after the image is available, inspect rendering work, "
+                "blocking CSS/JS and when the element becomes visible."
+            )
+
+    return {
+        "url": url,
+        "form_factor": form_factor,
+        "p75_lcp_ms": overall_lcp,
+        "subparts_p75_ms": breakdown,
+        "ranked_subparts": ranked,
+        "interpretation": {
+            "aggregation": "independent_p75",
+            "subparts_population": "image_lcp_full_page_loads",
+            "additive": False,
+            "note": (
+                "Each image subpart is an independent p75, not a contribution to "
+                "overall p75 LCP. Image subparts exclude text/video LCP, "
+                "back-forward navigations and prerendered pages that overall LCP "
+                "can include. Use their relative values to prioritize investigation "
+                "and confirm causes in representative traces."
+            ),
+        },
+        "recommendations": recommendations,
+        "raw": raw,
+    }
+
+
 def analyse(url: str, form_factor: str = "PHONE") -> dict:
     try:
         url, _ = validate_url_strict(url)
@@ -101,68 +171,12 @@ def analyse(url: str, form_factor: str = "PHONE") -> dict:
     raw = _query_crux(url, form_factor, api_key)
     if "error" in raw:
         return raw
-
-    metrics = raw.get("record", {}).get("metrics", {})
-    breakdown: dict[str, float | None] = {}
-    for key in _LCP_SUBPART_METRICS:
-        m = metrics.get(key)
-        breakdown[key] = _percentile(m) if m else None
-
-    overall_lcp = _percentile(metrics.get("largest_contentful_paint", {})) \
-        if metrics.get("largest_contentful_paint") else None
-
-    # Identify the dominant subpart. "Dominant" = subpart that contributes
-    # >40% of overall LCP, which is where remediation effort pays back.
-    dominant: list[dict] = []
-    if overall_lcp:
-        for key, val in breakdown.items():
-            if val is None:
-                continue
-            share = val / overall_lcp
-            if share >= 0.40:
-                dominant.append({"metric": key, "p75_ms": val,
-                                 "share": round(share, 2)})
-
-    recommendations: list[str] = []
-    for d in dominant:
-        if d["metric"].endswith("time_to_first_byte"):
-            recommendations.append(
-                "TTFB dominates LCP. Check origin response time, server-side "
-                "compute, CDN edge cache hit rate. Aim for TTFB < 0.8s."
-            )
-        elif d["metric"].endswith("resource_load_delay"):
-            recommendations.append(
-                "Resource load delay dominates. The LCP element is discovered "
-                "late; preload the hero image with fetchpriority=high or move "
-                "it ahead of blocking resources."
-            )
-        elif d["metric"].endswith("resource_load_duration"):
-            recommendations.append(
-                "Resource load duration dominates. The LCP image is large. "
-                "Serve responsive sizes (srcset), modern formats (AVIF/WebP), "
-                "and add async decoding hints."
-            )
-        elif d["metric"].endswith("element_render_delay"):
-            recommendations.append(
-                "Element render delay dominates. The element is loaded but "
-                "painting is blocked. Reduce render-blocking CSS/JS above the "
-                "fold and avoid font-blocking layout shifts."
-            )
-
-    return {
-        "url": url,
-        "form_factor": form_factor,
-        "p75_lcp_ms": overall_lcp,
-        "subparts_p75_ms": breakdown,
-        "dominant_subparts": dominant,
-        "recommendations": recommendations,
-        "raw": raw,
-    }
+    return _summarise_record(raw, url, form_factor)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Decompose LCP into its four subparts via CrUX."
+        description="Report independent image-LCP subpart p75s via CrUX."
     )
     parser.add_argument("url")
     parser.add_argument(
@@ -187,18 +201,20 @@ def main() -> int:
     else:
         print(f"URL: {result['url']}")
         print(f"Form factor: {result['form_factor']}")
-        print(f"Overall p75 LCP: {result['p75_lcp_ms']} ms")
-        print("Subparts (p75 ms):")
+        overall = result["p75_lcp_ms"]
+        print(f"Overall p75 LCP: {overall if overall is not None else 'n/a'} ms")
+        print("Subparts (independent p75 ms; image LCP on full page loads):")
         for k, v in result["subparts_p75_ms"].items():
             label = k.replace("largest_contentful_paint_image_", "")
             print(f"  {label:35s} {v if v is not None else 'n/a'}")
-        if result["dominant_subparts"]:
-            print("\nDominant subparts (>= 40% of LCP):")
-            for d in result["dominant_subparts"]:
+        print(f"\n{result['interpretation']['note']}")
+        if result["ranked_subparts"]:
+            print("\nSubparts ranked by observed p75 (not shares of overall LCP):")
+            for d in result["ranked_subparts"]:
                 short = d["metric"].replace("largest_contentful_paint_image_", "")
-                print(f"  {short} = {d['p75_ms']:.0f} ms ({d['share']*100:.0f}%)")
+                print(f"  {short} = {d['p75_ms']:.0f} ms")
         if result["recommendations"]:
-            print("\nRecommendations:")
+            print("\nChecks to prioritize and confirm in traces:")
             for r in result["recommendations"]:
                 print(f"  - {r}")
 
