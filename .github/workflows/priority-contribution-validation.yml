@@ -1,0 +1,57 @@
+name: Priority hint contribution validation
+
+on:
+  push:
+    branches: ["validation/20261126-priority-preload"]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Live validation (${{ matrix.case }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: preload
+            sha: e608576dc2eef25170a584a086ba89df4ca0c453
+            tests: tests/test_preload_image_priority.py
+    steps:
+      - name: Check out validation driver
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check out exact independent contribution
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ matrix.sha }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install declared HTTP and HTML dependencies
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          lines = Path("candidate/requirements.txt").read_text().splitlines()
+          needed = [line for line in lines if re.match(r"^(beautifulsoup4|requests|idna|lxml|urllib3)\b", line.strip())]
+          assert len(needed) >= 3, needed
+          Path("live-requirements.txt").write_text("\n".join(needed) + "\n")
+          PY
+          python -m pip install -r live-requirements.txt pytest
+      - name: Run regression coverage on the exact head
+        working-directory: candidate
+        env:
+          REGRESSION_TEST: ${{ matrix.tests }}
+        run: python -m pytest -q "$REGRESSION_TEST"
+      - name: Exercise real public URLs through production fetchers
+        env:
+          SMOKE_CASE: ${{ matrix.case }}
+          SMOKE_SHA: ${{ matrix.sha }}
+        run: python .github/contribution-smoke/live.py --repo-root candidate --case "$SMOKE_CASE" --expected-sha "$SMOKE_SHA"
