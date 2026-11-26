@@ -1,0 +1,86 @@
+name: Validate billion Google tool image egress
+run-name: Google tool image validation at 53e5fea
+
+on:
+  push:
+    branches: [validation/20261126-billion-google-images]
+
+permissions:
+  contents: read
+
+jobs:
+  static-gates:
+    name: static-gates (${{ matrix.os }}, ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: 24 }
+          - { os: windows-latest, node: 22 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Afloat16/billion-context
+          ref: 53e5fea16e95a8365e21ab0aef97461a27ef8700
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm install --ignore-scripts --no-fund --no-audit
+      - run: npm run typecheck
+      - run: npm --prefix kernel test
+      - run: npm --prefix pi-subagents test
+      - run: npm run build
+      - run: node scripts/check-dist-thin-install.mjs
+      - run: node scripts/check-unused-exports.mjs
+      - run: node scripts/check-test-import-graph.mjs
+
+  image-wire-regressions:
+    name: real Google tool image and wire regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Afloat16/billion-context
+          ref: 53e5fea16e95a8365e21ab0aef97461a27ef8700
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact image-lane dependencies
+        id: install
+        run: npm ci
+      - name: Typecheck
+        id: typecheck
+        run: npm run typecheck
+      - name: Real codec, HTTP, loop and related image regressions
+        run: >-
+          node --import ./tests/preload-storage-baseline.mjs
+          --import ./tests/preload-test-env.mjs
+          --import ./tests/preload-zone-slot.mjs
+          --import tsx --test --test-concurrency 4
+          tests/google-tool-image-egress.test.ts
+          tests/google-tool-image-http.test.ts
+          tests/google-tool-image-accounting.test.ts
+          tests/egress-shed-media.test.ts
+          tests/egress-shed-tool-result-scope.test.ts
+          tests/egress-shed-tool-result-http.test.ts
+          tests/egress-shed-downscale-tail.test.ts
+          tests/issue5745-image-shed-cap.test.ts
+          tests/issue3701-ws-byte-budget.test.ts
+          tests/issue4124-image-count-cap.test.ts
+          tests/issue3400-image-rescale.test.ts
+      - name: Full permanent wire contract
+        run: >-
+          node --import ./tests/preload-storage-baseline.mjs
+          --import ./tests/preload-test-env.mjs
+          --import ./tests/preload-zone-slot.mjs
+          --import tsx --test tests/wire-contract.test.ts
+      - name: Hermetic real-image billing E2E
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.typecheck.outcome == 'success' }}
+        run: npm run test:e2e:image
