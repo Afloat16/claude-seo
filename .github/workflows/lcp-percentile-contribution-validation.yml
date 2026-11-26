@@ -1,0 +1,95 @@
+name: CrUX independent percentile contribution validation
+
+on:
+  push:
+    branches: ["validation/20261126-lcp-percentiles"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check out validation driver
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check out exact contribution
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 19164a18735154d2397c2aaef7bcf8a32c96232b
+          path: candidate
+          persist-credentials: false
+      - name: Check out unchanged upstream baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 5d7d85ef32ade08dd4265cb678af8357ca6e6098
+          path: baseline
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install declared HTTP and HTML dependencies
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          lines = Path("candidate/requirements.txt").read_text().splitlines()
+          needed = [line for line in lines if re.match(r"^(beautifulsoup4|requests|idna|lxml|urllib3)\b", line.strip())]
+          assert len(needed) == 5, needed
+          Path("live-requirements.txt").write_text("\n".join(needed) + "\n")
+          PY
+          python -m pip install -r live-requirements.txt pytest
+      - name: Reproduce baseline percentile diagnostic failures
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import shutil
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          test = "tests/test_lcp_independent_percentiles.py"
+          tested_sha = subprocess.check_output(["git", "-C", "baseline", "rev-parse", "HEAD"], text=True).strip()
+          assert tested_sha == "5d7d85ef32ade08dd4265cb678af8357ca6e6098", tested_sha
+          shutil.copyfile(Path("candidate") / test, Path("baseline") / test)
+          result = subprocess.run([sys.executable, "-m", "pytest", "-q", test,
+                                   "--basetemp=../pytest-lcp-base", "--junitxml=../lcp-base.xml"], cwd="baseline")
+          cases = ET.parse("lcp-base.xml").findall(".//testcase")
+          failed = [case.attrib["name"] for case in cases if case.find("failure") is not None]
+          errors = [case for case in cases if case.find("error") is not None]
+          skipped = [case for case in cases if case.find("skipped") is not None]
+          assert result.returncode == 1 and len(cases) == 21, (result.returncode, len(cases))
+          assert len(failed) == 19 and not errors and not skipped, (failed, errors, skipped)
+          print("BASELINE_LCP_EVIDENCE " + json.dumps({"tested_sha": tested_sha,
+                "tests": len(cases), "failures": len(failed), "passes": len(cases) - len(failed),
+                "errors": 0, "skips": 0}))
+          PY
+      - name: Require all 48 related candidate tests with no skips
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+          tested_sha = subprocess.check_output(["git", "-C", "candidate", "rev-parse", "HEAD"], text=True).strip()
+          assert tested_sha == "19164a18735154d2397c2aaef7bcf8a32c96232b", tested_sha
+          tests = ["tests/test_lcp_independent_percentiles.py", "tests/test_google_api_key_safety.py", "tests/test_technical_depth.py"]
+          result = subprocess.run([sys.executable, "-m", "pytest", "-q", *tests,
+                                   "--basetemp=../pytest-lcp-candidate", "--junitxml=../lcp-candidate.xml"],
+                                  cwd="candidate")
+          cases = ET.parse("lcp-candidate.xml").findall(".//testcase")
+          failed = [case for case in cases if case.find("failure") is not None or case.find("error") is not None]
+          skipped = [case for case in cases if case.find("skipped") is not None]
+          assert result.returncode == 0 and len(cases) == 48, (result.returncode, len(cases))
+          assert not failed and not skipped, (failed, skipped)
+          print("CANDIDATE_LCP_EVIDENCE " + json.dumps({"tested_sha": tested_sha,
+                "tests": len(cases), "passes": len(cases), "errors": 0, "skips": 0}))
+          PY
+      - name: Check actual published CrUX record from live official documentation
+        run: python .github/contribution-smoke/lcp-percentiles.py --repo-root candidate --baseline-root baseline --expected-sha 19164a18735154d2397c2aaef7bcf8a32c96232b
