@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **IPTC injection stays within its single-file scope.** `iptc_ai_label.py inject`
+  rejects directories and other non-files with `image-not-a-file` instead of
+  passing them to ExifTool, which would rewrite every supported image in a
+  directory with `-overwrite_original`. Both audit and injection pass absolute
+  file operands so relative names beginning with `-` are handled as files,
+  including after `Path` removes a leading `./`. Directory audits remain supported.
+
 ## [2.6.3] - 2026-11-26
 
 Fixes release: 36 community fixes, three dependency updates and maintainer follow-ups. No new

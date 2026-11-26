@@ -79,7 +79,9 @@ def _read_source_type(image: Path) -> Optional[str]:
                 "exiftool",
                 "-XMP-iptcExt:DigitalSourceType",
                 "-s3",  # value-only
-                str(image),
+                # Path('./-image.jpg') drops './'; an absolute operand cannot
+                # be mistaken for an ExifTool option.
+                str(image.absolute()),
             ],
             capture_output=True,
             text=True,
@@ -149,6 +151,11 @@ def inject(image: Path, source_type: str) -> dict:
     if not image.exists():
         out["error"] = "image-not-found"
         return out
+    if not image.is_file():
+        # ExifTool treats a directory as a batch of files. This command
+        # promises a single-image write and uses -overwrite_original.
+        out["error"] = "image-not-a-file"
+        return out
     uri = IPTC_VOCAB[source_type]
     try:
         result = subprocess.run(
@@ -156,7 +163,7 @@ def inject(image: Path, source_type: str) -> dict:
                 "exiftool",
                 f"-XMP-iptcExt:DigitalSourceType={uri}",
                 "-overwrite_original",
-                str(image),
+                str(image.absolute()),
             ],
             capture_output=True,
             text=True,
