@@ -1,0 +1,163 @@
+name: Validate OpenMVG report pair statistics
+run-name: OpenMVG report pair validation at f7335d4
+on:
+  push:
+    branches: [validation/20261126-openmvg-report-pairs]
+permissions:
+  contents: read
+jobs:
+  cmake-report-suite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Afloat16/openMVG
+          ref: f7335d41fc1cadf914855f5ffd4641d0ca95b819
+          submodules: true
+          persist-credentials: false
+      - name: Configure the real OpenMVG build
+        run: >-
+          cmake -S src -B build -DCMAKE_BUILD_TYPE=Release
+          -DOpenMVG_BUILD_TESTS=ON -DOpenMVG_BUILD_EXAMPLES=OFF
+          -DOpenMVG_BUILD_SOFTWARES=OFF -DSCHUR_SPECIALIZATIONS=OFF
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.10 -DOpenMVG_USE_RERUN=OFF
+      - name: Build both registered report test targets
+        run: cmake --build build --parallel 2 --target openMVG_test_sfm_report openMVG_test_sfm_report_statistics
+      - name: Run the existing and new report suites together
+        run: ctest --test-dir build --build-config Release --parallel 2 --output-on-failure -R '^openMVG_test_sfm_report(_statistics)?$'
+  report-compatibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Afloat16/openMVG
+          ref: f7335d41fc1cadf914855f5ffd4641d0ca95b819
+          path: candidate
+          persist-credentials: false
+      - name: Build a standalone C++11 compatibility target
+        run: |
+          mkdir harness
+          cat > harness/CMakeLists.txt <<'CMAKE'
+          cmake_minimum_required(VERSION 3.15)
+          project(OpenMVGReportValidation LANGUAGES CXX)
+          set(CMAKE_CXX_STANDARD 11)
+          set(CMAKE_CXX_STANDARD_REQUIRED ON)
+          get_filename_component(SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../candidate/src" ABSOLUTE)
+          set(COMMON
+            "${SOURCE_ROOT}/openMVG/sfm/sfm_report.cpp"
+            "${SOURCE_ROOT}/third_party/stlplus3/filesystemSimplified/file_system.cpp"
+            "${SOURCE_ROOT}/third_party/stlplus3/filesystemSimplified/wildcard.cpp"
+            "${SOURCE_ROOT}/third_party/stlplus3/filesystemSimplified/portability_fixes.cpp")
+          file(GLOB TEST_FRAMEWORK "${SOURCE_ROOT}/third_party/CppUnitLite/*.cpp")
+          add_executable(report_statistics "${SOURCE_ROOT}/openMVG/sfm/sfm_report_statistics_test.cpp" ${COMMON} ${TEST_FRAMEWORK})
+          target_include_directories(report_statistics PRIVATE "${SOURCE_ROOT}" "${SOURCE_ROOT}/third_party/eigen")
+          enable_testing()
+          add_test(NAME report_statistics COMMAND report_statistics)
+          CMAKE
+          cmake -S harness -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release --parallel 2
+      - name: Verify exact pair statistics and output stability
+        run: ctest --test-dir build --build-config Release --output-on-failure
+      - uses: actions/checkout@v4
+        if: runner.os == 'Linux'
+        with:
+          repository: Afloat16/openMVG
+          ref: e0162aef9a5ba6ec9f54c39ed49ea47a0e82e1db
+          path: baseline
+          persist-credentials: false
+      - name: Measure the complete report generator on alternating revisions
+        if: runner.os == 'Linux'
+        run: |
+          cat > benchmark.cpp <<'CPP'
+          #include "openMVG/cameras/Camera_Pinhole.hpp"
+          #include "openMVG/sfm/sfm_data.hpp"
+          #include "openMVG/sfm/sfm_report.hpp"
+          #include <algorithm>
+          #include <chrono>
+          #include <cmath>
+          #include <cstdlib>
+          #include <iostream>
+          #include <memory>
+          #include <vector>
+          
+          static std::size_t acos_calls = 0;
+          #ifdef COUNT_ACOS
+          extern "C" double __real_acos(double);
+          extern "C" double __wrap_acos(double x)
+          {
+            ++acos_calls;
+            return __real_acos(x);
+          }
+          #endif
+          
+          int main(int argc, char **argv)
+          {
+            using namespace openMVG;
+            using namespace openMVG::sfm;
+            if (argc != 5) return 2;
+            const int views = std::atoi(argv[1]), points = std::atoi(argv[2]);
+            const int repetitions = std::atoi(argv[3]);
+            SfM_Data scene;
+            scene.intrinsics[0] = std::make_shared<cameras::Pinhole_Intrinsic>(1600, 1200, 900, 800, 600);
+            for (int v = 0; v < views; ++v)
+            {
+              const IndexT id = 7 + 3 * v;
+              const double phase = 2.0 * 3.14159265358979323846 * v / std::max(views, 1);
+              scene.views[id] = std::make_shared<View>("image_" + std::to_string(v) + ".jpg", id, 0, id, 1600, 1200);
+              scene.poses[id] = geometry::Pose3(Mat3::Identity(), Vec3(3 * std::cos(phase), 3 * std::sin(phase), 0));
+            }
+            for (int p = 0; p < points; ++p)
+            {
+              Landmark track;
+              track.X = Vec3((p % 101) * .01 - .5, (p % 67) * .01 - .3, 8.0 + (p % 37) * .03);
+              for (int v = 0; v < views; ++v)
+              {
+                const IndexT id = 7 + 3 * v;
+                const Vec2 projected = scene.intrinsics[0]->project(scene.poses[id](track.X));
+                track.obs[id] = Observation(projected + Vec2((p % 7) * .03, (v % 5) * .02), p);
+              }
+              scene.structure[p] = std::move(track);
+            }
+            std::vector<double> ms;
+            for (int r = -1; r < repetitions; ++r)
+            {
+              acos_calls = 0;
+              const auto start = std::chrono::steady_clock::now();
+              if (!Generate_SfM_Report(scene, argv[4])) return 3;
+              const auto finish = std::chrono::steady_clock::now();
+              if (r >= 0) ms.push_back(std::chrono::duration<double, std::milli>(finish - start).count());
+            }
+            std::sort(ms.begin(), ms.end());
+            std::cout << "{\"views\":" << views << ",\"points\":" << points
+                      << ",\"repetitions\":" << repetitions << ",\"median_ms\":" << ms[ms.size()/2]
+                      << ",\"acos_calls\":" << acos_calls << "}\n";
+          }
+          CPP
+          mkdir -p base-output candidate-output
+          for side in baseline candidate; do
+            c++ -std=c++11 -O3 -DNDEBUG -I"$side/src" -I"$side/src/third_party/eigen" benchmark.cpp "$side/src/openMVG/sfm/sfm_report.cpp" "$side/src/third_party/stlplus3/filesystemSimplified/file_system.cpp" "$side/src/third_party/stlplus3/filesystemSimplified/wildcard.cpp" -o "bench-$side"
+          done
+          python3 - <<'PYTEST'
+          import hashlib, json, statistics, subprocess
+          from pathlib import Path
+          for views, points in [(2,10000),(8,10000),(40,8000),(100,5000)]:
+              samples = {side: [] for side in ("baseline", "candidate")}
+              hashes = {}
+              for run in range(6):
+                  for side in (("baseline", "candidate") if run % 2 == 0 else ("candidate", "baseline")):
+                      output = "base-output" if side == "baseline" else "candidate-output"
+                      result = subprocess.run(["./bench-" + side, str(views), str(points), "1", output + "/report.html"], text=True, capture_output=True, check=True)
+                      samples[side].append(json.loads(result.stdout)["median_ms"])
+                      hashes[side] = {f.name: hashlib.sha256(f.read_bytes()).hexdigest() for f in Path(output).iterdir()}
+                  assert hashes["baseline"] == hashes["candidate"], (views, points, hashes)
+              print(json.dumps({"views": views, "points": points, "method": "alternating revisions, six samples each, uninstrumented O3 with a warmup before each sample", "samples_ms": samples, "median_ms": {k: statistics.median(v) for k,v in samples.items()}, "output_sha256": hashes["candidate"], "byte_identical": True}), flush=True)
+          PYTEST
