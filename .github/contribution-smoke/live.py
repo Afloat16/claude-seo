@@ -132,7 +132,8 @@ def main() -> int:
             parsed = parse_html.parse_html(html, final_url)
             candidates = [
                 image for image in parsed["images"]
-                if urlparse(image.get("resolved_src") or "").hostname in {"www.python.org", "python.org"}
+                if urlparse(image.get("resolved_src") or image.get("src") or "").hostname
+                in {"www.python.org", "python.org"}
             ]
             require(bool(candidates), "Live page contains no same-site image to probe")
             # Probe the actual first same-site image, with no synthetic prefix.
@@ -154,7 +155,7 @@ def main() -> int:
                     "Invalid bfcache signal shape")
             require(isinstance(result["recommendations"], list), "Invalid recommendations shape")
             report["result"] = result
-            report["inline_script_elements_on_live_page"] = len(soup.find_all("script"))
+            report["script_elements_on_live_page"] = len(soup.find_all("script"))
 
         # The same strict JSON serialization used for the result artifact.
         json.dumps(report, allow_nan=False)
