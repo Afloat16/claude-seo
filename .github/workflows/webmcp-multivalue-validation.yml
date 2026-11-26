@@ -1,0 +1,113 @@
+name: WebMCP multi-value contribution validation
+
+on:
+  push:
+    branches: ["validation/20261126-webmcp-multivalue"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Check out validation driver
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check out exact contribution
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: f173bfc996b4900a7c2dc2894191f53d4d40bd38
+          path: candidate
+          persist-credentials: false
+      - name: Check out unchanged upstream baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 5d7d85ef32ade08dd4265cb678af8357ca6e6098
+          path: baseline
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install declared HTTP, HTML and browser dependencies
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          lines = Path("candidate/requirements.txt").read_text().splitlines()
+          needed = [line for line in lines if re.match(r"^(beautifulsoup4|requests|idna|lxml|urllib3|playwright)\b", line.strip())]
+          assert len(needed) >= 6, needed
+          Path("live-requirements.txt").write_text("\n".join(needed) + "\n")
+          PY
+          python -m pip install -r live-requirements.txt pytest
+          python -m playwright install --with-deps chromium
+      - name: Require actual guarded Chromium and record its version
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path("candidate/scripts").resolve()))
+          import browser_proxy
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as pw:
+              executable = Path(pw.chromium.executable_path)
+              assert executable.is_file(), executable
+              with browser_proxy.guarded_chromium(pw.chromium) as browser:
+                  print("CHROMIUM_EVIDENCE " + json.dumps({"version": browser.version, "executable": str(executable)}))
+          PY
+      - name: Reproduce baseline failures with actual DOM cases and no skips
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import shutil
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          test = "tests/test_webmcp_multivalue_fields.py"
+          tested_sha = subprocess.check_output(["git", "-C", "baseline", "rev-parse", "HEAD"], text=True).strip()
+          assert tested_sha == "5d7d85ef32ade08dd4265cb678af8357ca6e6098", tested_sha
+          shutil.copyfile(Path("candidate") / test, Path("baseline") / test)
+          result = subprocess.run([sys.executable, "-m", "pytest", "-q", test,
+                                   "--basetemp=../pytest-webmcp-base", "--junitxml=../webmcp-base.xml"], cwd="baseline")
+          cases = ET.parse("webmcp-base.xml").findall(".//testcase")
+          failed = [case.attrib["name"] for case in cases if case.find("failure") is not None]
+          errors = [case for case in cases if case.find("error") is not None]
+          skipped = [case for case in cases if case.find("skipped") is not None]
+          dom_failed = [name for name in failed if name.startswith("test_generated_tool_submits_the_selected_dom_values")]
+          assert result.returncode == 1 and len(cases) == 20, (result.returncode, len(cases))
+          assert failed and dom_failed and not errors and not skipped, (failed, dom_failed, errors, skipped)
+          print("BASELINE_DOM_EVIDENCE " + json.dumps({"tested_sha": tested_sha,
+                "tests": len(cases), "failures": len(failed), "dom_failures": len(dom_failed),
+                "passes": len(cases) - len(failed), "errors": 0, "skips": 0}))
+          PY
+      - name: Require all related candidate tests including actual DOM with no skips
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+          tested_sha = subprocess.check_output(["git", "-C", "candidate", "rev-parse", "HEAD"], text=True).strip()
+          assert tested_sha == "f173bfc996b4900a7c2dc2894191f53d4d40bd38", tested_sha
+          result = subprocess.run([sys.executable, "-m", "pytest", "-q", "tests/test_webmcp_multivalue_fields.py",
+                                   "tests/test_agentic.py", "--basetemp=../pytest-webmcp-candidate",
+                                   "--junitxml=../webmcp-candidate.xml"], cwd="candidate")
+          cases = ET.parse("webmcp-candidate.xml").findall(".//testcase")
+          failed = [case for case in cases if case.find("failure") is not None or case.find("error") is not None]
+          skipped = [case for case in cases if case.find("skipped") is not None]
+          dom_cases = [case for case in cases if case.attrib["name"].startswith("test_generated_tool_submits_the_selected_dom_values")]
+          assert result.returncode == 0 and len(cases) == 136, (result.returncode, len(cases))
+          assert len(dom_cases) == 10 and not failed and not skipped, (len(dom_cases), failed, skipped)
+          print("CANDIDATE_DOM_EVIDENCE " + json.dumps({"tested_sha": tested_sha,
+                "tests": len(cases), "dom_passes": len(dom_cases), "passes": len(cases), "errors": 0, "skips": 0}))
+          PY
+      - name: Draft from the real public page without submitting forms
+        run: python .github/contribution-smoke/webmcp.py --repo-root candidate --expected-sha f173bfc996b4900a7c2dc2894191f53d4d40bd38
