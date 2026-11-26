@@ -1,0 +1,80 @@
+name: Validate billion CommandCode terminal lifetime
+run-name: CommandCode terminal validation at fbbaade
+
+on:
+  push:
+    branches: [validation/20261126-billion-commandcode-terminal]
+
+permissions:
+  contents: read
+
+jobs:
+  static-gates:
+    name: static-gates (${{ matrix.os }}, ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: 24 }
+          - { os: windows-latest, node: 22 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Afloat16/billion-context
+          ref: fbbaadefe12b664ce4b51c51c1d3225dd824a993
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm install --ignore-scripts --no-fund --no-audit
+      - run: npm run typecheck
+      - run: npm --prefix kernel test
+      - run: npm --prefix pi-subagents test
+      - run: npm run build
+      - run: node scripts/check-dist-thin-install.mjs
+      - run: node scripts/check-unused-exports.mjs
+      - run: node scripts/check-test-import-graph.mjs
+
+  terminal-wire-regressions:
+    name: real CommandCode terminal and wire regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Afloat16/billion-context
+          ref: fbbaadefe12b664ce4b51c51c1d3225dd824a993
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact dependencies
+        id: install
+        run: npm ci
+      - name: Typecheck
+        id: typecheck
+        run: npm run typecheck
+      - name: Real HTTP, loop, plugin and terminal regressions
+        run: >-
+          node --import ./tests/preload-storage-baseline.mjs
+          --import ./tests/preload-test-env.mjs
+          --import ./tests/preload-zone-slot.mjs
+          --import tsx --test --test-concurrency 4
+          tests/commandcode-terminal.test.ts
+          tests/adapter-commandcode.test.ts
+          tests/commandcode-plugin-pipe.test.ts
+          tests/commandcode-proxy-tools.test.ts
+          tests/commandcode-endpoint.test.ts
+          tests/commandcode-wire.test.ts
+          tests/proxy-stream-error.test.ts
+          tests/plugin-terminal-usage.test.ts
+      - name: Full permanent wire contract
+        run: >-
+          node --import ./tests/preload-storage-baseline.mjs
+          --import ./tests/preload-test-env.mjs
+          --import ./tests/preload-zone-slot.mjs
+          --import tsx --test tests/wire-contract.test.ts
