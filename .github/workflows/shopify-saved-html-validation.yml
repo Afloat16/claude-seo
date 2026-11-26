@@ -1,0 +1,44 @@
+name: Shopify saved HTML contribution validation
+
+on:
+  push:
+    branches: ["validation/20261126-shopify-saved-html"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check out validation driver
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check out exact contribution
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: b03ebf7ddac60e69d779b00c44b7c65ad52b5ab8
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install declared HTTP and HTML dependencies
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          lines = Path("candidate/requirements.txt").read_text().splitlines()
+          needed = [line for line in lines if re.match(r"^(beautifulsoup4|requests|idna|lxml|urllib3)\b", line.strip())]
+          assert len(needed) >= 3, needed
+          Path("live-requirements.txt").write_text("\n".join(needed) + "\n")
+          PY
+          python -m pip install -r live-requirements.txt pytest
+      - name: Run Shopify crawl regressions
+        working-directory: candidate
+        run: python -m pytest -q --basetemp=../pytest-shopify-html tests/test_shopify_saved_html.py tests/test_shopify_crawl.py tests/test_shopify_main.py tests/test_shopify_env.py
+      - name: Save a robots-permitted live public page with the exact contribution
+        run: python .github/contribution-smoke/shopify-save.py --repo-root candidate --expected-sha b03ebf7ddac60e69d779b00c44b7c65ad52b5ab8
