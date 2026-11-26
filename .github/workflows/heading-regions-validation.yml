@@ -2,7 +2,7 @@ name: Heading region contribution validation
 
 on:
   push:
-    branches: ["validation/20262766-heading-regions"]
+    branches: ["validation/20261126-heading-regions"]
 
 permissions:
   contents: read
