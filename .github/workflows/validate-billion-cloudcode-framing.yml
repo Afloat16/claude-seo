@@ -1,0 +1,83 @@
+name: Validate billion CloudCode framing
+run-name: CloudCode framing validation at 08896b5
+
+on:
+  push:
+    branches: [validation/20261126-billion-cloudcode-framing]
+
+permissions:
+  contents: read
+
+jobs:
+  static-gates:
+    name: static-gates (${{ matrix.os }}, ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: 24 }
+          - { os: windows-latest, node: 22 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Afloat16/billion-context
+          ref: 08896b5f5efa18b5a9c2d7d0c488ba0e97f315cd
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm install --ignore-scripts --no-fund --no-audit
+      - run: npm run typecheck
+      - run: npm --prefix kernel test
+      - run: npm --prefix pi-subagents test
+      - run: npm run build
+      - run: node scripts/check-dist-thin-install.mjs
+      - run: node scripts/check-unused-exports.mjs
+      - run: node scripts/check-test-import-graph.mjs
+
+  cloudcode-wire-regressions:
+    name: CloudCode ingress and wire regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Afloat16/billion-context
+          ref: 08896b5f5efa18b5a9c2d7d0c488ba0e97f315cd
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact dependencies
+        id: install
+        run: npm ci
+      - name: Typecheck
+        id: typecheck
+        run: npm run typecheck
+      - name: Real CloudCode HTTP, framing and adapter regressions
+        run: >-
+          node --import ./tests/preload-storage-baseline.mjs
+          --import ./tests/preload-test-env.mjs
+          --import ./tests/preload-zone-slot.mjs
+          --import tsx --test --test-concurrency 4
+          tests/v1internal-framing-scan.test.ts
+          tests/v1internal-multiline-sse.test.ts
+          tests/issue3129-v1internal.test.ts
+          tests/issue3280-v1internal-loop-rounds.test.ts
+          tests/loop-sse-framing-scan.test.ts
+          tests/loop-multiline-sse.test.ts
+          tests/loop-multiline-sse-http.test.ts
+          tests/adapter-google.test.ts
+          tests/issue5495-unsigned-thinking-replay.test.ts
+          tests/loop-adapters.test.ts
+          tests/issue2323-sse-crlf-cross-chunk.test.ts
+      - name: Full permanent wire contract
+        run: >-
+          node --import ./tests/preload-storage-baseline.mjs
+          --import ./tests/preload-test-env.mjs
+          --import ./tests/preload-zone-slot.mjs
+          --import tsx --test tests/wire-contract.test.ts
