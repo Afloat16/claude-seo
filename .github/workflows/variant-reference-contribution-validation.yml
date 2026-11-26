@@ -1,0 +1,95 @@
+name: Product variant reference contribution validation
+
+on:
+  push:
+    branches: ["validation/20261126-variant-references"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check out validation driver
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check out exact contribution
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: e03bb9a51b2a775268df2851fbf4f0df83e21913
+          path: candidate
+          persist-credentials: false
+      - name: Check out unchanged upstream baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 5d7d85ef32ade08dd4265cb678af8357ca6e6098
+          path: baseline
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install declared HTTP and HTML dependencies
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          lines = Path("candidate/requirements.txt").read_text().splitlines()
+          needed = [line for line in lines if re.match(r"^(beautifulsoup4|requests|idna|lxml|urllib3)\b", line.strip())]
+          assert len(needed) == 5, needed
+          Path("live-requirements.txt").write_text("\n".join(needed) + "\n")
+          PY
+          python -m pip install -r live-requirements.txt pytest
+      - name: Reproduce baseline variant reference false failures
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import shutil
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          test = "tests/test_schema_variant_references.py"
+          tested_sha = subprocess.check_output(["git", "-C", "baseline", "rev-parse", "HEAD"], text=True).strip()
+          assert tested_sha == "5d7d85ef32ade08dd4265cb678af8357ca6e6098", tested_sha
+          shutil.copyfile(Path("candidate") / test, Path("baseline") / test)
+          result = subprocess.run([sys.executable, "-m", "pytest", "-q", test,
+                                   "--basetemp=../pytest-variants-base", "--junitxml=../variants-base.xml"], cwd="baseline")
+          cases = ET.parse("variants-base.xml").findall(".//testcase")
+          failed = [case.attrib["name"] for case in cases if case.find("failure") is not None]
+          errors = [case for case in cases if case.find("error") is not None]
+          skipped = [case for case in cases if case.find("skipped") is not None]
+          assert result.returncode == 1 and len(cases) == 29, (result.returncode, len(cases))
+          assert len(failed) == 9 and not errors and not skipped, (failed, errors, skipped)
+          print("BASELINE_VARIANTS_EVIDENCE " + json.dumps({"tested_sha": tested_sha,
+                "tests": len(cases), "failures": len(failed), "passes": len(cases) - len(failed),
+                "errors": 0, "skips": 0}))
+          PY
+      - name: Require all 103 related candidate tests with no skips
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+          tested_sha = subprocess.check_output(["git", "-C", "candidate", "rev-parse", "HEAD"], text=True).strip()
+          assert tested_sha == "e03bb9a51b2a775268df2851fbf4f0df83e21913", tested_sha
+          tests = ["tests/test_schema_variant_references.py", "tests/test_schema_v2.py", "tests/test_schema_malformed_offers.py", "tests/test_schema_node_references.py", "tests/test_schema_policy_lists.py", "tests/test_schema_course_eligibility.py", "tests/test_schema_expanded_types.py"]
+          result = subprocess.run([sys.executable, "-m", "pytest", "-q", *tests,
+                                   "--basetemp=../pytest-variants-candidate", "--junitxml=../variants-candidate.xml"],
+                                  cwd="candidate")
+          cases = ET.parse("variants-candidate.xml").findall(".//testcase")
+          failed = [case for case in cases if case.find("failure") is not None or case.find("error") is not None]
+          skipped = [case for case in cases if case.find("skipped") is not None]
+          assert result.returncode == 0 and len(cases) == 103, (result.returncode, len(cases))
+          assert not failed and not skipped, (failed, skipped)
+          print("CANDIDATE_VARIANTS_EVIDENCE " + json.dumps({"tested_sha": tested_sha,
+                "tests": len(cases), "passes": len(cases), "errors": 0, "skips": 0}))
+          PY
+      - name: Check unchanged live Google multi-page variant examples
+        run: python .github/contribution-smoke/product-variants.py --repo-root candidate --baseline-root baseline --expected-sha e03bb9a51b2a775268df2851fbf4f0df83e21913
