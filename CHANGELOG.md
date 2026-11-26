@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Merchant schema validation recognizes URL-only ProductGroup variant references when the same group includes a full Product, so valid multi-page variant markup no longer receives missing-name/image/offers failures. References remain informational; local products and incomplete standalone/group-only markup retain normal checks.
+
 ## [2.6.3] - 2026-11-26
 
 Fixes release: 36 community fixes, three dependency updates and maintainer follow-ups. No new

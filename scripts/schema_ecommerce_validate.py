@@ -37,6 +37,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 # Types Google retired June 2025 (announced via developers.google.com/search/blog
 # /2025/06/simplifying-search-results). Generating any of these in 2026 is a
@@ -192,6 +193,51 @@ def _has_type(payload: dict, target_type: str) -> bool:
     return target_type in _node_types(payload)
 
 
+def _linked_variant_references(payload, products: list[dict], resolve) -> set[int]:
+    """Recognize URL-only variant references beside a full product in its group.
+
+    Google's multi-page ProductGroup examples link to off-page variants with
+    only their URL and group association. Such links are not incomplete local
+    product offers. Keep the exception narrow: unknown groups, standalone
+    products and nodes carrying any product details still receive normal checks.
+    """
+    memberships: dict[int, set[int]] = {}
+    for group in _iter_typed(payload, "ProductGroup"):
+        for variant in _as_dicts(group.get("hasVariant")):
+            variant = resolve(variant)
+            if _has_type(variant, "Product"):
+                memberships.setdefault(id(variant), set()).add(id(group))
+    for product in products:
+        for group in _as_dicts(product.get("isVariantOf")):
+            group = resolve(group)
+            if _has_type(group, "ProductGroup"):
+                memberships.setdefault(id(product), set()).add(id(group))
+
+    # A page consisting entirely of references must not become a passing
+    # merchant-listing document. At least one full Product must be present in
+    # the same group, and its offers and policy fields are still checked below.
+    populated_groups = set()
+    for product in products:
+        if all(product.get(field) not in (None, "", []) for field in _REQUIRED_PRODUCT_FIELDS):
+            populated_groups.update(memberships.get(id(product), ()))
+    references = set()
+    reference_keys = {"@context", "@id", "@type", "url", "isVariantOf"}
+    for product in products:
+        if set(product) - reference_keys or not memberships.get(id(product), set()) & populated_groups:
+            continue
+        url = product.get("url")
+        if not isinstance(url, str) or any(ord(char) <= 32 or ord(char) == 127 for char in url):
+            continue
+        try:
+            parsed = urlsplit(url)
+            absolute = parsed.scheme in {"http", "https"} and bool(parsed.hostname)
+        except ValueError:
+            absolute = False
+        if absolute:
+            references.add(id(product))
+    return references
+
+
 def validate(payload: dict | list, *, require_eu_energy: bool = False) -> dict:
     findings: list[dict] = []
     resolve = _reference_resolver(payload)
@@ -213,7 +259,17 @@ def validate(payload: dict | list, *, require_eu_energy: bool = False) -> dict:
             "message": "No @type=\"Product\" block found in the JSON-LD.",
         })
 
+    linked_variants = _linked_variant_references(payload, products, resolve)
     for prod in products:
+        if id(prod) in linked_variants:
+            findings.append({
+                "severity": "Info",
+                "rule": "linked-variant-reference",
+                "message": f"URL-only ProductGroup variant reference: {prod['url']}. "
+                           "Its product details are not checked here; full Product "
+                           "entries in the same group are checked separately.",
+            })
+            continue
         # 2. Required base Product fields.
         for field in _REQUIRED_PRODUCT_FIELDS:
             if field not in prod or prod[field] in (None, "", []):
