@@ -1,0 +1,76 @@
+name: Validate billion pinned cache controls
+run-name: Pinned cache controls validation at 373fe54
+
+on:
+  push:
+    branches: [validation/20261126-billion-pinned-cache-controls]
+
+permissions:
+  contents: read
+
+jobs:
+  static-gates:
+    name: static-gates (${{ matrix.os }}, ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: 24 }
+          - { os: windows-latest, node: 22 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Afloat16/billion-context
+          ref: 373fe54e11f95f591a9a7b8d3ddd889d8ecbe73c
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm install --ignore-scripts --no-fund --no-audit
+      - run: npm run typecheck
+      - run: npm --prefix kernel test
+      - run: npm --prefix pi-subagents test
+      - run: npm run build
+      - run: node scripts/check-dist-thin-install.mjs
+      - run: node scripts/check-unused-exports.mjs
+      - run: node scripts/check-test-import-graph.mjs
+
+  cache-controls-wire-regressions:
+    name: Pinned cache controls and wire regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Afloat16/billion-context
+          ref: 373fe54e11f95f591a9a7b8d3ddd889d8ecbe73c
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact dependencies
+        id: install
+        run: npm ci
+      - name: Typecheck
+        id: typecheck
+        run: npm run typecheck
+      - name: Real proxy/plugin HTTP, cache and round-2 regressions
+        run: >-
+          node --import ./tests/preload-storage-baseline.mjs
+          --import ./tests/preload-test-env.mjs
+          --import ./tests/preload-zone-slot.mjs
+          --import tsx --test --test-concurrency 4
+          tests/issue6861-client-cache-marks-pinned.test.ts
+          tests/anthropic-cache-control.test.ts
+          tests/issue2499-anthropic-round2-cache.test.ts
+          tests/opencode-rolling-cache-marks.test.ts
+      - name: Full permanent wire contract
+        run: >-
+          node --import ./tests/preload-storage-baseline.mjs
+          --import ./tests/preload-test-env.mjs
+          --import ./tests/preload-zone-slot.mjs
+          --import tsx --test tests/wire-contract.test.ts
