@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- OrderAction JSON-LD identifies the merchant as the action provider and puts
+  accepted payment methods on that Organization. Generated actions no longer
+  invent a USD purchase minimum or delivery methods, or put `inLanguage` on
+  an EntryPoint, where the property is not supported.
+
 ## [2.6.3] - 2026-11-26
 
 Fixes release: 36 community fixes, three dependency updates and maintainer follow-ups. No new

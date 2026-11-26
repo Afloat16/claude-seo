@@ -106,6 +106,10 @@ def order_action(
     Attach the result to a Product or Service via:
 
         {"@type": "Product", "potentialAction": <this dict>}
+
+    The merchant provides the ordering action. Payment methods describe that
+    Organization; they are not properties of OrderAction itself. Delivery
+    methods are included only when supplied by the caller.
     """
     payload: dict = {
         "@context": "https://schema.org",
@@ -114,28 +118,17 @@ def order_action(
         "target": {
             "@type": "EntryPoint",
             "urlTemplate": order_url,
-            "inLanguage": "en-US",
             "actionPlatform": [
                 "https://schema.org/DesktopWebPlatform",
                 "https://schema.org/MobileWebPlatform",
             ],
         },
-        "deliveryMethod": delivery_method or [
-            "https://schema.org/OnSitePickup",
-            "https://schema.org/ParcelService",
-        ],
-        "priceSpecification": {
-            "@type": "PriceSpecification",
-            "eligibleTransactionVolume": {
-                "@type": "PriceSpecification",
-                "minPrice": 0,
-                "priceCurrency": "USD",
-            },
-        },
-        "merchant": {"@type": "Organization", "name": merchant},
+        "provider": {"@type": "Organization", "name": merchant},
     }
+    if delivery_method:
+        payload["deliveryMethod"] = list(delivery_method)
     if accepted_payment_method:
-        payload["acceptedPaymentMethod"] = [
+        payload["provider"]["acceptedPaymentMethod"] = [
             {"@type": "PaymentMethod", "name": m}
             for m in accepted_payment_method
         ]
