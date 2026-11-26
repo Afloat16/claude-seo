@@ -1,0 +1,40 @@
+{
+  "serps": [
+    {
+      "keyword": "Python iterate dictionary items",
+      "urls": [
+        "https://docs.python.org/3/howto/functional.html?highlight=operators",
+        "https://docs.python.org/3/howto/functional.html?highlight=comprehensions+dictionary",
+        "https://docs.python.org/3/howto/functional.html?highlight=equivalent",
+        "https://docs.python.org/3/tutorial/datastructures.html?highlight=dictionary",
+        "https://docs.python.org/3/builtins/stdtypes.html",
+        "https://docs.python.org/3/tutorial/datastructures.html?highlight=list+indexing",
+        "https://docs.python.org/3/tutorial/datastructures.html?highlight=data+structures",
+        "https://docs.python.org/3/tutorial/datastructures.html",
+        "https://docs.python.org/3.11/tutorial/datastructures.html",
+        "https://docs.python.org/3.13/builtins/stdtypes.html",
+        "https://docs.python.org/3.13/tutorial/datastructures.html",
+        "https://docs.python.org/es/3.7/library/stdtypes.html"
+      ],
+      "error": "Connected web search returned relevant public pages; complete Google organic rank order is not verified"
+    },
+    {
+      "keyword": "Python dictionary keys values iteration",
+      "urls": [
+        "https://docs.python.org/3/howto/functional.html?highlight=comprehensions+dictionary",
+        "https://docs.python.org/3/builtins/stdtypes.html",
+        "https://docs.python.org/3/tutorial/datastructures.html",
+        "https://docs.python.org/3.14/builtins/stdtypes.html",
+        "https://docs.python.org/3.11/library/stdtypes.html",
+        "https://docs.python.org/de/3.10/library/stdtypes.html",
+        "https://docs.python.org/uk/3/builtins/stdtypes.html",
+        "https://docs.python.org/3/tutorial/datastructures.html?highlight=list+indexing",
+        "https://docs.python.org/3/tutorial/datastructures.html?highlight=looping+through+lists",
+        "https://docs.python.org/es/3.5/library/stdtypes.html",
+        "https://docs.python.org/id/3.12/library/stdtypes.html",
+        "https://docs.python.org/3.11/tutorial/datastructures.html"
+      ],
+      "error": "Connected web search returned relevant public pages; complete Google organic rank order is not verified"
+    }
+  ]
+}

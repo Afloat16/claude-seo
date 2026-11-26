@@ -1,0 +1,137 @@
+{
+  "source": "Connected web search, restricted to docs.python.org",
+  "date": "2026-11-26",
+  "complete_google_serp_claimed": false,
+  "queries": [
+    {
+      "keyword": "Python iterate dictionary items",
+      "hits": [
+        {
+          "title": "Functional Programming HOWTO — Python 3.15.2 documentation",
+          "url": "https://docs.python.org/3/howto/functional.html?highlight=operators",
+          "ref": "turn915256591search0"
+        },
+        {
+          "title": "Functional Programming HOWTO — Python 3.14.7 documentation",
+          "url": "https://docs.python.org/3/howto/functional.html?highlight=comprehensions+dictionary",
+          "ref": "turn915256591search1"
+        },
+        {
+          "title": "Functional Programming HOWTO — Python 3.15.2 documentation",
+          "url": "https://docs.python.org/3/howto/functional.html?highlight=equivalent",
+          "ref": "turn915256591search2"
+        },
+        {
+          "title": "5. Data Structures — Python 3.15.2 documentation",
+          "url": "https://docs.python.org/3/tutorial/datastructures.html?highlight=dictionary",
+          "ref": "turn915256591search3"
+        },
+        {
+          "title": "Built-in Types — Python 3.15.2 documentation",
+          "url": "https://docs.python.org/3/builtins/stdtypes.html",
+          "ref": "turn915256591search4"
+        },
+        {
+          "title": "5. Data Structures — Python 3.15.2 documentation",
+          "url": "https://docs.python.org/3/tutorial/datastructures.html?highlight=list+indexing",
+          "ref": "turn915256591search5"
+        },
+        {
+          "title": "5. Data Structures — Python 3.15.2 documentation",
+          "url": "https://docs.python.org/3/tutorial/datastructures.html?highlight=data+structures",
+          "ref": "turn915256591search6"
+        },
+        {
+          "title": "5. Data Structures — Python 3.15.2 documentation",
+          "url": "https://docs.python.org/3/tutorial/datastructures.html",
+          "ref": "turn915256591search7"
+        },
+        {
+          "title": "5. Data Structures — Python 3.11.18 documentation",
+          "url": "https://docs.python.org/3.11/tutorial/datastructures.html",
+          "ref": "turn915256591search8"
+        },
+        {
+          "title": "Built-in Types — Python 3.13.18 documentation",
+          "url": "https://docs.python.org/3.13/builtins/stdtypes.html",
+          "ref": "turn915256591search9"
+        },
+        {
+          "title": "5. Data Structures — Python 3.13.18 documentation",
+          "url": "https://docs.python.org/3.13/tutorial/datastructures.html",
+          "ref": "turn915256591search10"
+        },
+        {
+          "title": "Built-in Types — documentación de Python - 3.7.17",
+          "url": "https://docs.python.org/es/3.7/library/stdtypes.html",
+          "ref": "turn915256591search11"
+        }
+      ]
+    },
+    {
+      "keyword": "Python dictionary keys values iteration",
+      "hits": [
+        {
+          "title": "Functional Programming HOWTO — Python 3.14.7 documentation",
+          "url": "https://docs.python.org/3/howto/functional.html?highlight=comprehensions+dictionary",
+          "ref": "turn248440483search0"
+        },
+        {
+          "title": "Built-in Types — Python 3.15.2 documentation",
+          "url": "https://docs.python.org/3/builtins/stdtypes.html",
+          "ref": "turn248440483search1"
+        },
+        {
+          "title": "5. Data Structures — Python 3.15.2 documentation",
+          "url": "https://docs.python.org/3/tutorial/datastructures.html",
+          "ref": "turn248440483search2"
+        },
+        {
+          "title": "Built-in Types — Python 3.14.10 documentation",
+          "url": "https://docs.python.org/3.14/builtins/stdtypes.html",
+          "ref": "turn248440483search3"
+        },
+        {
+          "title": "Built-in Types — Python 3.11.18 documentation",
+          "url": "https://docs.python.org/3.11/library/stdtypes.html",
+          "ref": "turn248440483search4"
+        },
+        {
+          "title": "Built-in Types — Python 3.10.22 Dokumentation",
+          "url": "https://docs.python.org/de/3.10/library/stdtypes.html",
+          "ref": "turn248440483search5"
+        },
+        {
+          "title": "Built-in Types — Python 3.15.2 documentation",
+          "url": "https://docs.python.org/uk/3/builtins/stdtypes.html",
+          "ref": "turn248440483search6"
+        },
+        {
+          "title": "5. Data Structures — Python 3.15.2 documentation",
+          "url": "https://docs.python.org/3/tutorial/datastructures.html?highlight=list+indexing",
+          "ref": "turn248440483search7"
+        },
+        {
+          "title": "5. Data Structures — Python 3.15.2 documentation",
+          "url": "https://docs.python.org/3/tutorial/datastructures.html?highlight=looping+through+lists",
+          "ref": "turn248440483search8"
+        },
+        {
+          "title": "4. Built-in Types — documentación de Python - 3.5.10",
+          "url": "https://docs.python.org/es/3.5/library/stdtypes.html",
+          "ref": "turn248440483search9"
+        },
+        {
+          "title": "Built-in Types — Dokumentasi Python 3.12.16",
+          "url": "https://docs.python.org/id/3.12/library/stdtypes.html",
+          "ref": "turn248440483search10"
+        },
+        {
+          "title": "5. Data Structures — Python 3.11.18 documentation",
+          "url": "https://docs.python.org/3.11/tutorial/datastructures.html",
+          "ref": "turn248440483search11"
+        }
+      ]
+    }
+  ]
+}
