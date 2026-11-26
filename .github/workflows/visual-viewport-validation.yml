@@ -1,0 +1,115 @@
+name: Visual viewport contribution validation
+
+on:
+  push:
+    branches: ["validation/20261126-visual-viewport"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out validation driver
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check out exact contribution
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: f9b80b5b1283203e2aaa7ae90fc5df55f5306ed8
+          path: candidate
+          persist-credentials: false
+      - name: Check out unchanged upstream baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 5d7d85ef32ade08dd4265cb678af8357ca6e6098
+          path: baseline
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install declared HTTP HTML and browser dependencies
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          lines = Path("candidate/requirements.txt").read_text().splitlines()
+          needed = [line for line in lines if re.match(r"^(beautifulsoup4|requests|idna|lxml|urllib3|playwright)\b", line.strip())]
+          assert len(needed) == 6, needed
+          Path("live-requirements.txt").write_text("\n".join(needed) + "\n")
+          PY
+          python -m pip install -r live-requirements.txt pytest
+          python -m playwright install --with-deps chromium
+      - name: Require installed Chromium and record actual version
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path("candidate/scripts").resolve()))
+          from browser_proxy import guarded_chromium
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as pw:
+              assert Path(pw.chromium.executable_path).exists(), pw.chromium.executable_path
+              with guarded_chromium(pw.chromium) as browser:
+                  print("VISUAL_CHROMIUM_EVIDENCE " + json.dumps({"executable": pw.chromium.executable_path,
+                        "version": browser.version}))
+          PY
+      - name: Reproduce baseline failures including actual DOM failures
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import shutil
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          test = "tests/test_visual_viewport.py"
+          tested_sha = subprocess.check_output(["git", "-C", "baseline", "rev-parse", "HEAD"], text=True).strip()
+          assert tested_sha == "5d7d85ef32ade08dd4265cb678af8357ca6e6098", tested_sha
+          shutil.copyfile(Path("candidate") / test, Path("baseline") / test)
+          result = subprocess.run([sys.executable, "-m", "pytest", "-q", test,
+                                   "--basetemp=../pytest-visual-base", "--junitxml=../visual-base.xml"], cwd="baseline")
+          cases = ET.parse("visual-base.xml").findall(".//testcase")
+          failed = [case for case in cases if case.find("failure") is not None]
+          errors = [case for case in cases if case.find("error") is not None]
+          skipped = [case for case in cases if case.find("skipped") is not None]
+          dom = [case for case in cases if case.attrib["name"].startswith("test_actual_chromium_layout_")]
+          dom_failures = [case for case in dom if case.find("failure") is not None]
+          assert result.returncode == 1 and len(cases) == 31, (result.returncode, len(cases))
+          assert len(failed) >= 19 and not errors and not skipped, (len(failed), errors, skipped)
+          assert len(dom) == 12 and len(dom_failures) >= 7, (len(dom), len(dom_failures))
+          print("BASELINE_VISUAL_EVIDENCE " + json.dumps({"tested_sha": tested_sha,
+                "tests": len(cases), "failures": len(failed), "passes": len(cases) - len(failed),
+                "dom_cases": len(dom), "dom_failures": len(dom_failures), "errors": 0, "skips": 0}))
+          PY
+      - name: Require all 226 candidate tests and every DOM case with no skips
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+          tested_sha = subprocess.check_output(["git", "-C", "candidate", "rev-parse", "HEAD"], text=True).strip()
+          assert tested_sha == "f9b80b5b1283203e2aaa7ae90fc5df55f5306ed8", tested_sha
+          result = subprocess.run([sys.executable, "-m", "pytest", "-q", "tests/test_visual_viewport.py",
+                                   "tests/test_browser_proxy.py", "--basetemp=../pytest-visual-candidate",
+                                   "--junitxml=../visual-candidate.xml"], cwd="candidate")
+          cases = ET.parse("visual-candidate.xml").findall(".//testcase")
+          failed = [case for case in cases if case.find("failure") is not None or case.find("error") is not None]
+          skipped = [case for case in cases if case.find("skipped") is not None]
+          dom = [case for case in cases if case.attrib["name"].startswith("test_actual_chromium_layout_")]
+          assert result.returncode == 0 and len(cases) == 226, (result.returncode, len(cases))
+          assert len(dom) == 12 and not failed and not skipped, (len(dom), failed, skipped)
+          print("CANDIDATE_VISUAL_EVIDENCE " + json.dumps({"tested_sha": tested_sha,
+                "tests": len(cases), "passes": len(cases), "dom_cases": len(dom), "errors": 0, "skips": 0}))
+          PY
+      - name: Audit actual Python documentation through guarded API and JSON CLI
+        run: python .github/contribution-smoke/visual-viewport.py --repo-root candidate --expected-sha f9b80b5b1283203e2aaa7ae90fc5df55f5306ed8
