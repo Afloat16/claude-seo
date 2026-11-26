@@ -16,7 +16,9 @@ claim to.
 
 Use case: a content editor running last-mile cleanup on a draft. This
 is NOT a paraphraser or a translation tool; it does not introduce new
-content. Every replacement is a deterministic 1:1 swap.
+content. Every replacement is a deterministic 1:1 swap. Markdown code,
+links/references and URLs retain their original source, including whitespace
+and Unicode characters; cleanup applies to the surrounding prose.
 
 Attribution
 ===========
@@ -231,7 +233,302 @@ def _preserve_case(match_text: str, replacement: str) -> str:
     return replacement
 
 
-def humanize(text: str) -> dict:
+# Keep source slices, rather than rendering Markdown or inserting placeholders:
+# code, URLs and link identifiers must survive every cleanup pass byte-for-byte.
+_FENCE_RE = re.compile(r" {0,3}(`{3,}|~{3,})(.*)$")
+_LIST_RE = re.compile(r"( *)(?:[-+*]|[0-9]{1,9}[.)])( +)(.*)$")
+_QUOTE_RE = re.compile(r" {0,3}> ?")
+_URL_RE = re.compile(r"(?:https?://|mailto:|www\.)[^\s<>]+", re.IGNORECASE)
+_REFERENCE_RE = re.compile(
+    r"(?m)^[ \t]*(?:>[ \t]*)*\[((?:\\.|[^\[\]\\]){1,999})\]:"
+)
+
+
+def _code_blocks(text: str) -> list[tuple[int, int]]:
+    """Locate fenced/indented code without changing its source formatting.
+
+    List indentation is relative to the current item; an indented nested list
+    still contains prose. Quote/list prefixes are only used to recognise blocks.
+    This is a conservative source protector, not a Markdown renderer.
+    """
+    spans = []
+    fence = None  # (character, minimum length, quote depth, list indentation)
+    list_indents: list[int] = []
+    previous_blank = True
+    indented = False
+    offset = 0
+    for source in re.findall(r"[^\r\n]*(?:\r\n|\r|\n|$)", text):
+        if not source:
+            continue
+        line = source.rstrip("\r\n").expandtabs(4)
+        if fence:
+            char, length, quotes, base = fence
+            rest = line
+            for _ in range(quotes):
+                prefix = _QUOTE_RE.match(rest)
+                if not prefix:
+                    break
+                rest = rest[prefix.end():]
+            else:
+                if not rest.strip() or len(rest) - len(rest.lstrip(" ")) >= base:
+                    spans.append((offset, offset + len(source)))
+                    closing = _FENCE_RE.fullmatch(rest[base:])
+                    if (closing and closing[1][0] == char
+                            and len(closing[1]) >= length and not closing[2].strip()):
+                        fence = None
+                    previous_blank = True
+                    offset += len(source)
+                    continue
+            # A quote/list ending also terminates its unterminated fence.
+            fence = None
+        quotes = 0
+        while prefix := _QUOTE_RE.match(line):
+            quotes += 1
+            line = line[prefix.end():]
+        blank = not line.strip()
+        indent = len(line) - len(line.lstrip(" "))
+        if not blank:
+            while list_indents and indent < list_indents[-1]:
+                list_indents.pop()
+        base = list_indents[-1] if list_indents else 0
+        if blank:
+            if indented:
+                spans.append((offset, offset + len(source)))
+            previous_blank = True
+        elif indent >= base + 4 and (previous_blank or indented):
+            spans.append((offset, offset + len(source)))
+            indented = True
+        else:
+            indented = False
+            item = _LIST_RE.fullmatch(line)
+            if item:
+                # A list marker starts prose, even when nested under another item.
+                base = item.start(3) if len(item[2]) <= 4 else item.start(2) + 1
+                list_indents.append(base)
+                content = line[base:]
+                if content.startswith("    "):
+                    spans.append((offset, offset + len(source)))
+                    indented = True
+                    previous_blank = True
+                    offset += len(source)
+                    continue
+            else:
+                content = line[base:]
+            opening = _FENCE_RE.fullmatch(content)
+            if opening and not (opening[1][0] == "`" and "`" in opening[2]):
+                fence = (opening[1][0], len(opening[1]), quotes, base)
+                spans.append((offset, offset + len(source)))
+                previous_blank = True
+            else:
+                previous_blank = False
+        offset += len(source)
+    return spans
+
+
+def _code_spans(text: str) -> list[tuple[int, int]]:
+    # Pre-index equal-length runs per paragraph, avoiding a suffix scan for
+    # every unmatched backtick. Escapes affect openers, not literal code text.
+    runs = list(re.finditer(r"`+|\n[ \t]*\r?\n|\r[ \t]*\r", text))
+    next_run = {}
+    after_escape = {}
+    following = {}
+    for i in range(len(runs) - 1, -1, -1):
+        run = runs[i]
+        if run[0][0] != "`":
+            following.clear()
+        else:
+            if len(run[0]) in following:
+                next_run[i] = following[len(run[0])]
+            if len(run[0]) - 1 in following:
+                after_escape[i] = following[len(run[0]) - 1]
+            following[len(run[0])] = i
+    spans = []
+    i = 0
+    while i < len(runs):
+        run = runs[i]
+        before = run.start() - 1
+        while before >= 0 and text[before] == "\\":
+            before -= 1
+        escaped = (run.start() - before - 1) % 2
+        closing = after_escape.get(i) if escaped else next_run.get(i)
+        if closing is not None:
+            end = closing
+            spans.append((run.start() + escaped, runs[end].end()))
+            i = end + 1
+        else:
+            i += 1
+    return spans
+
+
+def _reference_label(text: str) -> str:
+    # A blockquote marker on a continuation line is container syntax, not ID text.
+    text = re.sub(r"(?<=\n)(?: {0,3}> ?)+", "", text)
+    return " ".join(text.split()).casefold()
+
+
+def _reference_space(text: str, position: int) -> int:
+    """Skip horizontal whitespace and at most one nonblank continuation line."""
+    match = re.compile(r"[ \t]*(?:\r\n|\r|\n)?[ \t]*(?:>[ \t]*)*").match(text, position)
+    return match.end()
+
+
+def _reference_end(text: str, position: int) -> int | None:
+    """Find a reference destination and its optional complete, multiline title."""
+    position = _reference_space(text, position)
+    start = position
+    angled = position < len(text) and text[position] == "<"
+    if angled:
+        position += 1
+    depth = 0
+    while position < len(text):
+        char = text[position]
+        if char == "\\" and position + 1 < len(text) and text[position + 1] not in "\r\n":
+            position += 2
+            continue
+        if angled:
+            if char == ">":
+                position += 1
+                break
+            if char in "<\r\n":
+                return None
+        elif ord(char) <= 32 or ord(char) == 127:
+            break
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            if depth == 0:
+                return None
+            depth -= 1
+        position += 1
+    else:
+        if angled:
+            return None
+    if position == start or depth:
+        return None
+    destination_end = position
+    title_start = _reference_space(text, position)
+    if title_start == position or title_start >= len(text) or text[title_start] not in "\"'(":
+        return destination_end
+    opening = text[title_start]
+    closing = ")" if opening == "(" else opening
+    position = title_start + 1
+    while position < len(text):
+        char = text[position]
+        if char == "\\" and position + 1 < len(text) and text[position + 1] not in "\r\n":
+            position += 2
+            continue
+        if char == closing:
+            # A title must finish its line, not consume a following paragraph.
+            if re.compile(r"[ \t]*(?:\r|\n|$)").match(text, position + 1):
+                return position + 1
+            return destination_end
+        if opening == "(" and char == "(":
+            return destination_end
+        if char in "\r\n":
+            next_line = _reference_space(text, position)
+            if next_line == len(text) or text[next_line] in "\r\n":
+                return destination_end  # A blank line terminates a reference title.
+            position = next_line
+        else:
+            position += 1
+    return destination_end
+
+
+def _inline_literals(text: str, references: set[str]) -> list[tuple[int, int]]:
+    spans = _code_spans(text)
+    spans.extend(match.span() for match in _URL_RE.finditer(text))
+    # Bracket pairs preserve whole links, including reference labels. Rewriting
+    # one label independently could detach it from a definition elsewhere.
+    brackets = {}
+    stack = []
+    escaped = False
+    for i, char in enumerate(text):
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == "[":
+            stack.append(i)
+        elif char == "]" and stack:
+            brackets[stack.pop()] = i
+    consumed = 0
+    for start, end in sorted(brackets.items()):
+        if start < consumed:
+            continue
+        after = end + 1
+        if after < len(text) and text[after] == "(":
+            # Keep balanced destinations/titles together, including escaped
+            # parentheses and angle-bracket destinations containing spaces.
+            depth = 1
+            quote = ""
+            i = after + 1
+            while i < len(text) and depth:
+                char = text[i]
+                if char == "\\":
+                    i += 2
+                    continue
+                if quote:
+                    if char == quote:
+                        quote = ""
+                elif char == "<":
+                    quote = ">"
+                elif char in "\"'" and i > after + 1 and text[i - 1].isspace():
+                    quote = char
+                elif char == "(":
+                    depth += 1
+                elif char == ")":
+                    depth -= 1
+                i += 1
+            # Preserve unfinished link source as well; changing its destination
+            # while an editor is still typing is no safer than changing a link.
+            consumed = i
+            spans.append((start, i))
+        elif references and after in brackets and brackets[after] - after - 1 <= 999:
+            other_end = brackets[after]
+            other = _reference_label(text[after + 1:other_end])
+            if not other and end - start - 1 <= 999:
+                other = _reference_label(text[start + 1:end])
+            if other in references:
+                spans.append((start, other_end + 1))
+                consumed = other_end + 1
+        elif references and end - start - 1 <= 999:
+            if _reference_label(text[start + 1:end]) in references:
+                spans.append((start, after))
+    return spans
+
+
+def _literal_spans(text: str) -> list[tuple[int, int]]:
+    blocks = _code_blocks(text)
+    regions = []
+    start = 0
+    for left, right in blocks:
+        if start < left:
+            regions.append((start, left))
+        start = right
+    if start < len(text):
+        regions.append((start, len(text)))
+    spans = list(blocks)
+    references = set()
+    for left, right in regions:
+        region = text[left:right]
+        for match in _REFERENCE_RE.finditer(region):
+            end = _reference_end(region, match.end())
+            if end is not None:
+                references.add(_reference_label(match[1]))
+                spans.append((left + match.start(), left + end))
+    for left, right in regions:
+        spans.extend((left + a, left + b)
+                     for a, b in _inline_literals(text[left:right], references))
+    merged: list[tuple[int, int]] = []
+    for left, right in sorted(spans):
+        if merged and left <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(right, merged[-1][1]))
+        else:
+            merged.append((left, right))
+    return merged
+
+
+def _humanize_prose(text: str) -> dict:
     """Apply every replacement; return the cleaned text plus a change log."""
     changes: list[dict] = []
     # Strip invisible characters first: zero-width codepoints inside
@@ -259,6 +556,28 @@ def humanize(text: str) -> dict:
 
     return {
         "cleaned": cleaned,
+        "changes": changes,
+        "change_count": len(changes),
+        "invisible_removed": invisible_removed,
+        "invisible_count": sum(invisible_removed.values()),
+    }
+
+
+def humanize(text: str) -> dict:
+    """Clean prose while preserving literal Markdown source and URL targets."""
+    parts = []
+    changes = []
+    invisible_removed: dict[str, int] = {}
+    start = 0
+    for left, right in [*_literal_spans(text), (len(text), len(text))]:
+        result = _humanize_prose(text[start:left])
+        parts.extend((result["cleaned"], text[left:right]))
+        changes.extend(result["changes"])
+        for label, count in result["invisible_removed"].items():
+            invisible_removed[label] = invisible_removed.get(label, 0) + count
+        start = right
+    return {
+        "cleaned": "".join(parts),
         "changes": changes,
         "change_count": len(changes),
         "invisible_removed": invisible_removed,
