@@ -1,0 +1,82 @@
+name: Validate OpenGame header compatibility
+on:
+  push:
+    branches: [validation/20261127-opengame74-headers]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      OPENMOTION_TELEMETRY: '0'
+      CANDIDATE_SHA: '0e80751dd3314f8c0f5ba1a200659a298a256979'
+      CANDIDATE_TREE: 'b36ec99dd783a513e3fb269fc17cf1f12390ceda'
+    steps:
+      - name: Check out exact OpenGame source without optional LFS media
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: Afloat16/opengame
+          ref: '0e80751dd3314f8c0f5ba1a200659a298a256979'
+          fetch-depth: 2
+          lfs: false
+          persist-credentials: false
+      - name: Verify immutable source identity
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$CANDIDATE_TREE"
+          git diff --check
+      - name: Set up repository-pinned Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '26.11.1'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked source dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Source checks
+        run: npm run check
+      - name: Studio typecheck
+        run: npm run typecheck:studio
+      - name: Build Studio and runtime inputs
+        run: |
+          set -euo pipefail
+          npm run build:studio
+          npm run build:tracking
+      - name: Existing project and actual HTTP range and preview regressions
+        run: node --experimental-strip-types --test --test-reporter=tap tests/game-projects.test.ts tests/game-asset-range.test.ts tests/local-game-preview.test.ts
+      - name: Confirm existing minimal-request regression rejects the original direct access
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re,subprocess
+          path=Path('game-projects.ts')
+          original=path.read_bytes()
+          source=original.decode()
+          assert source.count('const rangeHeader = req.headers?.range;') == 1
+          changed=source.replace('const rangeHeader = req.headers?.range;', 'const rangeHeader = req.headers.range;')
+          changed=changed.replace("rangeHeader && req.headers?.['if-range'] === undefined", "rangeHeader && req.headers['if-range'] === undefined")
+          try:
+              path.write_text(changed)
+              command=['node','--experimental-strip-types','--test','--test-reporter=tap','--test-name-pattern','^multiplayer entry redirects','tests/game-projects.test.ts']
+              result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=120)
+              print(result.stdout,end='',flush=True)
+              assert result.returncode == 1, result.returncode
+              assert re.search(r'not ok \d+ - multiplayer entry redirects',result.stdout)
+              assert '400 !== 200' in result.stdout
+              assert re.search(r'# fail 1\b',result.stdout)
+              print('NEGATIVE_CONTROL_CONFIRMED=existing_minimal_request_400_instead_of_200',flush=True)
+          finally:
+              path.write_bytes(original)
+              assert path.read_bytes() == original
+          PY
+      - name: Verify unchanged source after checks
+        if: always()
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          git diff --cached --exit-code
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$CANDIDATE_TREE"
+          printf 'VALIDATED_SOURCE=%s\nVALIDATED_TREE=%s\n' "$CANDIDATE_SHA" "$CANDIDATE_TREE"
