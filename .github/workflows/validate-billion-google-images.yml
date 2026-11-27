@@ -1,12 +1,17 @@
 name: Validate billion Google tool image egress
-run-name: Google tool image validation at 53e5fea
+run-name: Rebased Google tool images at e532489
 
 on:
   push:
-    branches: [validation/20261126-billion-google-images]
+    branches: [validation/20261127-billion-google-images-main]
 
 permissions:
   contents: read
+
+env:
+  npm_config_fetch_retries: 5
+  npm_config_fetch_retry_mintimeout: 5000
+  npm_config_fetch_retry_maxtimeout: 60000
 
 jobs:
   static-gates:
@@ -23,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Afloat16/billion-context
-          ref: 53e5fea16e95a8365e21ab0aef97461a27ef8700
+          ref: e532489e0b717cdbd23fd27d52238f951017acb8
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -46,7 +51,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Afloat16/billion-context
-          ref: 53e5fea16e95a8365e21ab0aef97461a27ef8700
+          ref: e532489e0b717cdbd23fd27d52238f951017acb8
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
